@@ -1,5 +1,5 @@
 'use strict';
-/* Opt-in debug only; normal snapshots never reveal hidden cards. */
+/* Operator-only spectator hands; human games keep opponents hidden. */
 (() => {
   const panel = document.getElementById('hands-analyzer');
   const rows = document.getElementById('hands-rows');
@@ -7,7 +7,19 @@
   if (!panel || !rows || !hint) return;
   const faces = ['3','4','5','6','7','8','9','10','J','Q','K','A','2','小王','大王'];
   const suits = ['♠','♥','♣','♦'];
+  const tableHands = [0,1,2].map(seat => document.getElementById('seat-hand-' + seat));
   let enabled = false, serial = 0;
+  let spectatorInFlight = false, displayedGame = null, displayedSequence = -1;
+  function makeCard(cid) {
+    const rank = cid>=52 ? cid-39 : cid%13;
+    const suitIndex = cid<52 ? Math.floor(cid/13) : -1;
+    const card = document.createElement('span');
+    card.className = 'debug-playing-card' + (suitIndex===1||suitIndex===3||cid===53?' red':'');
+    const number = document.createElement('b'); number.textContent=cid>=52?(cid===52?'小':'大'):faces[rank];
+    const symbol = document.createElement('small'); symbol.textContent=suitIndex<0?'王':suits[suitIndex];
+    card.append(number,symbol);
+    return card;
+  }
   const originalUpdate = update;
   update = function (data) {
     originalUpdate(data);
@@ -23,7 +35,46 @@
       hint.textContent = data.phase === 'FINISHED' ? '本局结束' : '叫地主阶段，不进行牌型比较';
     }
     if (enabled) void refresh(data.game_id, data.sequence);
+    if (data.model_ids[0] === '@human') {
+      displayedGame = null;
+      displayedSequence = -1;
+      tableHands.forEach(tray => {tray.replaceChildren();tray.hidden=true;});
+    } else {
+      if (displayedGame !== data.game_id) {
+        displayedGame = data.game_id;
+        displayedSequence = -1;
+        tableHands.forEach(tray => tray.replaceChildren());
+      }
+      tableHands.forEach(tray => {tray.hidden=false;});
+      void refreshSpectator(data.game_id);
+    }
   };
+  async function refreshSpectator(id) {
+    if (spectatorInFlight) return;
+    spectatorInFlight = true;
+    let success = false;
+    try {
+      const response = await fetch('/api/games/' + encodeURIComponent(id) + '/spectator/hands', {cache:'no-store'});
+      if (!response.ok) throw Error('HTTP ' + response.status);
+      const state = await response.json();
+      if (!current || current.game_id !== id || current.model_ids[0] === '@human' ||
+          state.game_id !== id || state.sequence < displayedSequence) return;
+      state.hands.forEach((cards,seat) => {
+        const tray = tableHands[seat];
+        tray.replaceChildren(...cards.map(makeCard));
+      });
+      displayedSequence = state.sequence;
+      success = true;
+    } catch (error) {
+      if (current && current.game_id === id && displayedSequence < 0)
+        tableHands.forEach(tray => {tray.textContent='手牌加载失败';});
+    } finally {
+      spectatorInFlight = false;
+      if (current && current.model_ids[0] !== '@human' &&
+          (current.game_id !== id || (success && current.sequence > displayedSequence)))
+        void refreshSpectator(current.game_id);
+    }
+  }
   async function refresh(id, sequence) {
     if (!id) return;
     const ticket = ++serial;
@@ -41,13 +92,7 @@
         const tray = document.createElement('div'); tray.className='debug-hand-tray';
         tray.setAttribute('aria-label', 'Agent ' + seat + ' 的已排序手牌');
         for (const cid of state.hands[seat]) {
-          const rank = cid>=52 ? cid-39 : cid%13;
-          const suitIndex = cid<52 ? Math.floor(cid/13) : -1;
-          const card = document.createElement('span');
-          card.className = 'debug-playing-card' + (suitIndex===1||suitIndex===3||cid===53?' red':'');
-          const number = document.createElement('b'); number.textContent=faces[rank];
-          const symbol = document.createElement('small'); symbol.textContent=suitIndex<0?'★':suits[suitIndex];
-          card.append(number,symbol); tray.append(card);
+          tray.append(makeCard(cid));
         }
         row.append(heading,tray); rows.append(row);
       }

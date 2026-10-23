@@ -66,6 +66,10 @@ def test_training_checkpoint_evaluate_and_resume(tmp_path):
     assert "optimizer" not in data
     eval_metrics = evaluate_bundle(rebuilt, games=2, seed=250)
     assert eval_metrics == evaluate_bundle(rebuilt, games=2, seed=250)
+    reasonable_metrics = evaluate_bundle(rebuilt, games=2, seed=250,
+                                         play_opponent='reasonable')
+    assert reasonable_metrics['play_opponent'] == 'reasonable'
+    assert 0 <= reasonable_metrics['role_min_rate'] <= 1
     assert eval_metrics["landlord_games"] <= 2
     assert eval_metrics["farmer_games"] <= 2
     assert eval_metrics["auction_audit"]["first_deal_count"] == 2
@@ -79,6 +83,8 @@ def test_training_checkpoint_evaluate_and_resume(tmp_path):
     with pytest.raises(ValueError, match="cannot resume"):
         incompatible = DMCTrainer(replace(cfg, lr=0.01))
         incompatible.resume(latest)
+    with pytest.raises(ValueError, match='cannot resume'):
+        DMCTrainer(replace(cfg, eval_opponent='reasonable')).resume(latest)
 
 
 def test_checkpoint_hash_rejection(tmp_path):
@@ -99,7 +105,27 @@ def test_invalid_config_and_empty_candidates():
         TrainConfig(episodes=0)
     with pytest.raises(ValueError):
         NetworkSpec(hidden=-1)
+    with pytest.raises(ValueError):
+        TrainConfig(eval_opponent='invalid')
     env = DDZEnv(3)
     bundle = RoleBundle(NetworkSpec(hidden=16))
     with pytest.raises(ValueError):
         bundle.act(env.current_observation(), random.Random(3), epsilon=1.2)
+
+
+def test_final_partial_batch_has_one_evaluation_and_early_stop(tmp_path):
+    partial = TrainConfig(episodes=3, batch_episodes=2, eval_every=3,
+                          eval_games=1, hidden=12, history_capacity=0,
+                          output=str(tmp_path / 'partial'))
+    result = DMCTrainer(partial).train()
+    lines = (tmp_path / 'partial' / 'evaluations.jsonl').read_text().splitlines()
+    assert len(lines) == 1
+    assert json.loads(lines[0])['episodes_seen'] == 3
+    assert result['updates'] == 2
+
+    early = TrainConfig(episodes=4, batch_episodes=1, eval_every=1,
+                        eval_games=1, hidden=12, history_capacity=0,
+                        early_stop_patience_evals=1, min_score_improvement=2,
+                        output=str(tmp_path / 'early'))
+    stopped = DMCTrainer(early).train()
+    assert stopped['episodes_seen'] == 2 and stopped['stopped_early'] is True

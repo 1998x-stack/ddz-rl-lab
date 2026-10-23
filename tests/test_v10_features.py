@@ -48,6 +48,19 @@ def test_arena_tampered_journal_skipped(tmp_path):
     path.write_text(json.dumps(value))
     restored = ArenaManager(tmp_path/'registry', tmp_path/'replays', allow_baseline=True)
     assert g.game_id not in restored.games
+    with pytest.raises(KeyError):
+        restored.get(g.game_id)
+
+
+def test_arena_dangling_journal_symlink_does_not_block_recovery(tmp_path):
+    pytest.importorskip('torch')
+    from ddz_web.arena import ArenaManager
+    a = ArenaManager(tmp_path/'registry', tmp_path/'replays', allow_baseline=True)
+    valid = a.create(('@random',)*3, seed=42)
+    bad = tmp_path/'replays'/'sessions'/('0'*24 + '.json')
+    bad.symlink_to(tmp_path/'missing.json')
+    restored = ArenaManager(tmp_path/'registry', tmp_path/'replays', allow_baseline=True)
+    assert valid.game_id in restored.games
 
 
 def test_recovered_arena_http_requires_no_private_seed(tmp_path):

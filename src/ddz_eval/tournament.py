@@ -5,14 +5,16 @@ from loguru import logger
 from ddz_core.actions import ActionKind
 from ddz_core.state import Phase, Team
 from ddz_env.environment import DDZEnv
-from ddz_env.baselines import random_action_index
+from ddz_env.baselines import random_action_index, reasonable_action_index
 from ddz_models.policy import RoleBundle
 
 
 def evaluate_bundle(bundle: RoleBundle, seed: int = 34000, games: int = 20,
-                    max_steps: int = 1200) -> dict:
+                    max_steps: int = 1200, play_opponent: str = 'random') -> dict:
     if games < 1 or max_steps < 1:
         raise ValueError("games/max_steps must be positive")
+    if play_opponent not in {'random', 'reasonable'}:
+        raise ValueError('play_opponent must be random or reasonable')
     scores = {"landlord_wins": 0, "farmer_wins": 0, "landlord_games": 0,
               "farmer_games": 0, "truncated": 0}
     quality = {"play_decisions": 0, "played_actions": 0,
@@ -65,7 +67,9 @@ def evaluate_bundle(bundle: RoleBundle, seed: int = 34000, games: int = 20,
                             bool(plays) and enemy_leads and
                             any(obs.remaining_counts[seat] <= 2 for seat in opponents))
                 else:
-                    action_id = random_action_index(env, rng)
+                    action_id = (reasonable_action_index(obs, rng)
+                                 if play_opponent == 'reasonable' else
+                                 random_action_index(env, rng))
                 env.step(action_id, include_digest=False)
             if not env.done:
                 raise RuntimeError("evaluation decision limit exceeded")
@@ -80,9 +84,11 @@ def evaluate_bundle(bundle: RoleBundle, seed: int = 34000, games: int = 20,
                 scores["farmer_wins"] += int(env.engine.state.winner == Team.FARMERS)
     landlord_rate = scores["landlord_wins"] / scores["landlord_games"] if scores["landlord_games"] else 0.0
     farmer_rate = scores["farmer_wins"] / scores["farmer_games"] if scores["farmer_games"] else 0.0
-    result: dict[str, float | int] = dict(scores)
+    result: dict = dict(scores)
     result.update(landlord_rate=landlord_rate, farmer_rate=farmer_rate,
-                  balanced_score=(landlord_rate + farmer_rate) / 2)
+                  balanced_score=(landlord_rate + farmer_rate) / 2,
+                  role_min_rate=min(landlord_rate, farmer_rate),
+                  play_opponent=play_opponent)
     result["play_quality"] = quality
     result["auction_audit"] = audit_bidding(bundle, seed=seed, deals=games)
     logger.bind(component="evaluation").info("external baseline evaluation {}", result)

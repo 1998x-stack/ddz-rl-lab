@@ -27,6 +27,7 @@ class TrainConfig:
     batch_episodes: int = 8
     eval_games: int = 16
     eval_every: int = 40
+    eval_opponent: str = 'random'
     seed: int = 2026
     hidden: int = 128
     lr: float = .0003
@@ -40,7 +41,6 @@ class TrainConfig:
     replay_sample_size: int = 2048
     updates_per_batch: int = 1
     history_capacity: int = 6
-    history_keep_top: int = 0
     history_probability: float = .35
     history_keep_top: int = 0
     early_stop_patience_evals: int = 0
@@ -60,8 +60,6 @@ class TrainConfig:
         if (type(self.early_stop_patience_evals) is not int or
                 self.early_stop_patience_evals < 0 or self.min_score_improvement < 0):
             raise ValueError('invalid early stopping configuration')
-        if type(self.history_keep_top) is not int or self.history_keep_top < 0 or self.history_keep_top > 100:
-            raise ValueError("history_keep_top must be 0..100")
         if type(self.history_keep_top) is not int or not 0 <= self.history_keep_top <= 100:
             raise ValueError("history_keep_top must be 0..100")
         if not 0 <= self.history_probability <= 1:
@@ -70,6 +68,8 @@ class TrainConfig:
             raise ValueError("redeal_penalty must be in [0,2]")
         if self.model_schema not in {"ddz-candidate-mlp-v1", "ddz-candidate-mlp-v2"}:
             raise ValueError("unsupported model_schema")
+        if self.eval_opponent not in {'random', 'reasonable'}:
+            raise ValueError('eval_opponent must be random or reasonable')
 
 
 @dataclass(frozen=True)
@@ -102,34 +102,42 @@ class DMCTrainer:
         self.output = Path(config.output)
         self.output.mkdir(parents=True, exist_ok=True)
         self.meter = ThroughputMeter()
+        self._history_cache: dict[Path, dict] = {}
 
     def _frozen_history(self) -> list[tuple[str, dict]]:
         paths = sorted((self.output / "history").glob("step-*.weights.pt"))[-self.config.history_capacity:] if self.config.history_capacity else []
+        self._history_cache = {path: weights for path, weights in self._history_cache.items()
+                               if path in paths}
         result = []
         for path in paths:
-            frozen = RoleBundle(self.bundle.spec, "cpu")
-            load_checkpoint(path, frozen)
-            result.append((path.stem, frozen.state_dict()))
+            if path not in self._history_cache:
+                frozen = RoleBundle(self.bundle.spec, "cpu")
+                load_checkpoint(path, frozen)
+                self._history_cache[path] = frozen.state_dict()
+            result.append((path.stem, self._history_cache[path]))
         return result
 
     def rollout(self, seed: int) -> list[Experience]:
         """Single-episode compatibility API; reuses the v5 actor path."""
         return self._collect([seed])[0].samples
 
-    def _collect(self, seeds: list[int]):
+    def _collect(self, seeds: list[int], pool=None):
         from .actors import collect_batch
         # Snapshots are CPU tensors even if the learner is on CUDA.
         weights = {role: {name: value.detach().cpu().clone()
                           for name, value in net.state_dict().items()}
                    for role, net in self.bundle.models.items()}
         historical = self._frozen_history()
-        return collect_batch(seeds, spec=self.bundle.spec, weights=weights,
-                             historical=historical, epsilon=self.config.epsilon,
-                             bid_epsilon=self.config.bid_epsilon,
-                             max_steps=self.config.max_steps,
-                             historical_probability=self.config.history_probability,
-                             redeal_penalty=self.config.redeal_penalty,
-                             workers=self.config.actor_workers)
+        collector = pool.collect if pool is not None else collect_batch
+        options = dict(spec=self.bundle.spec, weights=weights,
+                       historical=historical, epsilon=self.config.epsilon,
+                       bid_epsilon=self.config.bid_epsilon,
+                       max_steps=self.config.max_steps,
+                       historical_probability=self.config.history_probability,
+                       redeal_penalty=self.config.redeal_penalty)
+        if pool is None:
+            options['workers'] = self.config.actor_workers
+        return collector(seeds, **options)
 
     def learn(self, samples: list[Experience]) -> dict[str, float]:
         losses: dict[str, float] = {}
@@ -164,7 +172,7 @@ class DMCTrainer:
                 "bid_epsilon" not in saved):
             raise ValueError("cannot resume legacy checkpoint with deal-aware bid targets")
         for field in ("seed", "hidden", "lr", "epsilon", "bid_epsilon",
-                      "batch_episodes", "max_steps",
+                      "batch_episodes", "max_steps", "eval_opponent",
                       "actor_workers", "replay_capacity", "replay_sample_size",
                       "updates_per_batch", "history_capacity", "history_probability",
                       "early_stop_patience_evals", "min_score_improvement",
@@ -183,38 +191,43 @@ class DMCTrainer:
             self.replay.load_state_dict(payload["trainer_state"]["replay"])
 
     def train(self) -> dict:
+        from .actors import ActorPool
         evaluated_at: int | None = None
         target = self.episodes_seen + self.config.episodes
-        while self.episodes_seen < target:
-            remaining = target - self.episodes_seen
-            until_update = self.config.batch_episodes - self.episodes_seen % self.config.batch_episodes
-            until_eval = self.config.eval_every - self.episodes_seen % self.config.eval_every
-            count = min(remaining, until_update, until_eval)
-            seeds = [self.config.seed + 100000 + i
-                     for i in range(self.episodes_seen, self.episodes_seen + count)]
-            before = time.monotonic()
-            results = self._collect(seeds)
-            self.meter.record(results)
-            self.replay.add([sample for result in results for sample in result.samples])
-            self.episodes_seen += count
-            stats = self.meter.snapshot()
-            stats.update(episodes_seen=self.episodes_seen, replay_size=len(self.replay),
-                         actor_workers=self.config.actor_workers,
-                         collection_wall_s=time.monotonic()-before,
-                         historical_episodes=sum(x.opponent is not None for x in results))
-            append_metrics(self.output / "throughput.jsonl", stats)
-            logger.bind(component="actors", episodes=self.episodes_seen).info(
-                "collect episodes={} samples={} ep_s={:.2f} decisions_s={:.2f}",
-                count, sum(len(r.samples) for r in results), stats["episodes_per_s"],
-                stats["decisions_per_s"])
-            if self.episodes_seen % self.config.batch_episodes == 0:
-                self._learn_from_replay()
-            if self.episodes_seen % self.config.eval_every == 0:
-                self._evaluate_and_save()
-                evaluated_at = self.episodes_seen
-                if self.stopped_early:
-                    logger.bind(component='learner', episodes=self.episodes_seen).info('early_stopping_triggered')
-                    break
+        with ActorPool(self.config.actor_workers) as pool:
+            while self.episodes_seen < target:
+                remaining = target - self.episodes_seen
+                until_update = self.config.batch_episodes - self.episodes_seen % self.config.batch_episodes
+                until_eval = self.config.eval_every - self.episodes_seen % self.config.eval_every
+                count = min(remaining, until_update, until_eval)
+                seeds = [self.config.seed + 100000 + i
+                         for i in range(self.episodes_seen, self.episodes_seen + count)]
+                before = time.monotonic()
+                results = self._collect(seeds, pool=pool)
+                self.meter.record(results)
+                self.replay.add([sample for result in results for sample in result.samples])
+                self.episodes_seen += count
+                stats = self.meter.snapshot()
+                stats.update(episodes_seen=self.episodes_seen, replay_size=len(self.replay),
+                             actor_workers=self.config.actor_workers,
+                             collection_wall_s=time.monotonic()-before,
+                             historical_episodes=sum(x.opponent is not None for x in results))
+                append_metrics(self.output / "throughput.jsonl", stats)
+                logger.bind(component="actors", episodes=self.episodes_seen).info(
+                    "collect episodes={} samples={} ep_s={:.2f} decisions_s={:.2f}",
+                    count, sum(len(r.samples) for r in results), stats["episodes_per_s"],
+                    stats["decisions_per_s"])
+                if self.episodes_seen % self.config.batch_episodes == 0:
+                    self._learn_from_replay()
+                if self.episodes_seen % self.config.eval_every == 0:
+                    # Defer evaluation at the exact final partial-batch boundary
+                    # until its learner update is complete.
+                    if self.episodes_seen != target or self.episodes_seen % self.config.batch_episodes == 0:
+                        self._evaluate_and_save()
+                        evaluated_at = self.episodes_seen
+                        if self.stopped_early:
+                            logger.bind(component='learner', episodes=self.episodes_seen).info('early_stopping_triggered')
+                            break
         if not self.stopped_early and self.episodes_seen % self.config.batch_episodes:
             self._learn_from_replay()
             # The last evaluation happened before this final partial update.
@@ -233,7 +246,8 @@ class DMCTrainer:
 
     def _evaluate_and_save(self) -> None:
         result = evaluate_bundle(self.bundle, self.config.seed + 200000,
-                                 self.config.eval_games, self.config.max_steps)
+                                 self.config.eval_games, self.config.max_steps,
+                                 play_opponent=self.config.eval_opponent)
         score = float(result["balanced_score"])
         improved = score > self.best_score + self.config.min_score_improvement
         if improved:

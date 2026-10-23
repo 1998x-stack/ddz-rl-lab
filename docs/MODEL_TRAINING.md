@@ -22,7 +22,7 @@
 Seed plan
    |
    v
-多进程 CPU actors (spawn)
+多进程 CPU actors (spawn，一次启动并跨 batch 复用)
    |-- DDZEnv -> GameEngine -> legal_actions
    |-- PlayerObservation (脱敏)
    |-- RoleBundle.act(obs, epsilon) 仅从合法候选中挑选
@@ -360,3 +360,10 @@ pytest -q
 ## v2 encoder and bidding-credit integration note
 
 The training code now also supports ddz-candidate-mlp-v2 with a versioned observation/action encoder and distinct exploration for bidding vs playing. The legacy v1 schemas remain valid for historical checkpoints; do not reinterpret v1 model weights as v2 tensors. Redeal-aware bidding targets change the learning semantics and require a fresh experiment. Strict legal-action generation and authoritative GameEngine validation remain unchanged; local transparent-hand debugging must never be used in rollout observations.
+
+## 近期训练与评测修正
+
+- 多进程 ActorPool 在一次 `train()` 调用内复用进程；每个 batch 开始前重新加载当前模型权重，保持同步采样。历史 checkpoint 的权重在 learner 侧按路径缓存，不再每个 batch 重复读取。种子结果仍按输入顺序返回。
+- 最后一个不满 batch 的 learner 更新发生在最终评估之前；同一 `episodes_seen` 只写一次评估记录。旧运行如曾出现同一步两条记录，应保留原始文件备份后再处理分析输入。
+- `--eval-opponent reasonable` 使用确定种子的合法启发式出牌对手；叫牌仍使用固定随机协议，以隔离出牌能力。默认 `random` 保留旧报告的可比性。报告新增 `role_min_rate`，便于识别一侧为零的失衡模型。
+- v1 与 v2 网络的行为不可用同一权重互换。对新模型使用未参与训练选择的种子以及配对 tournament；仅当注册表晋升门槛通过时才激活。

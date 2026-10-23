@@ -22,7 +22,11 @@ class RuleConfig:
     max_redeals: int = 100  # guard to protect demo/training; exceeding aborts, not a loss
 
     def __post_init__(self) -> None:
-        if not self.rule_id or self.max_redeals < 0:
+        if (type(self.rule_id) is not str or not self.rule_id or
+                any(type(getattr(self, name)) is not bool for name in
+                    ('repeated_airplane_single_wings', 'repeated_four_two_singles',
+                     'forbid_double_joker_as_wings')) or
+                type(self.max_redeals) is not int or self.max_redeals < 0):
             raise ValueError("invalid rule configuration")
 
 

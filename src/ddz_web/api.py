@@ -17,6 +17,7 @@ from .auth import OperatorAuth, COOKIE
 from .debug_hands import hand_debug_payload
 
 STATIC_DIR = Path(__file__).resolve().parent / 'static'
+NO_CACHE = {'Cache-Control': 'no-store'}
 
 
 class NewGame(BaseModel):
@@ -29,6 +30,11 @@ class NewGame(BaseModel):
 class Control(BaseModel):
     action: Literal['play', 'pause', 'step', 'speed']
     delay: float | None = None
+
+
+class HumanAction(BaseModel):
+    index: int
+    expected_step: int
 
 
 def _origin_allowed(origin: str | None, host: str, trusted: set[str]) -> bool:
@@ -83,23 +89,23 @@ def create_app(registry_dir: str | Path = 'runs/registry',
 
     @app.get('/')
     def page():
-        return FileResponse(STATIC_DIR / 'index.html')
+        return FileResponse(STATIC_DIR / 'index.html', headers=NO_CACHE)
 
     @app.get('/static/app.js')
     def javascript():
-        return FileResponse(STATIC_DIR / 'app.js', media_type='text/javascript')
+        return FileResponse(STATIC_DIR / 'app.js', media_type='text/javascript', headers=NO_CACHE)
 
     @app.get('/static/style.css')
     def stylesheet():
-        return FileResponse(STATIC_DIR / 'style.css', media_type='text/css')
+        return FileResponse(STATIC_DIR / 'style.css', media_type='text/css', headers=NO_CACHE)
 
     @app.get('/static/auth.js')
     def auth_js():
-        return FileResponse(STATIC_DIR / 'auth.js', media_type='text/javascript')
+        return FileResponse(STATIC_DIR / 'auth.js', media_type='text/javascript', headers=NO_CACHE)
 
     @app.get('/static/lab.js')
     def lab_javascript():
-        return FileResponse(STATIC_DIR / 'lab.js', media_type='text/javascript')
+        return FileResponse(STATIC_DIR / 'lab.js', media_type='text/javascript', headers=NO_CACHE)
 
     @app.get('/api/lab/overview')
     def overview():
@@ -202,7 +208,7 @@ def create_app(registry_dir: str | Path = 'runs/registry',
 
     @app.get('/static/handview.js')
     def handview_javascript():
-        return FileResponse(STATIC_DIR / 'handview.js', media_type='text/javascript')
+        return FileResponse(STATIC_DIR / 'handview.js', media_type='text/javascript', headers=NO_CACHE)
 
     def local_debug_allowed(request: Request) -> bool:
         # Reject remote peers; Origin and Host are never authentication.
@@ -218,6 +224,16 @@ def create_app(registry_dir: str | Path = 'runs/registry',
         if not local_debug_allowed(request):
             raise HTTPException(404, detail='debug hands unavailable')
         return JSONResponse(hand_debug_payload(get_game(game_id)),
+                            headers={'Cache-Control': 'private, no-store'})
+
+    @app.get('/api/games/{game_id}/spectator/hands')
+    def spectator_hands(game_id: str):
+        game = get_game(game_id)
+        if '@human' in game.policy_ids:
+            raise HTTPException(403, detail='opponent hands unavailable in human games')
+        payload = hand_debug_payload(game)
+        payload['schema'] = 'ddz-spectator-hands-v1'
+        return JSONResponse(payload,
                             headers={'Cache-Control': 'private, no-store'})
 
     @app.get('/api/models')
@@ -243,6 +259,21 @@ def create_app(registry_dir: str | Path = 'runs/registry',
     @app.get('/api/games/{game_id}')
     def state(game_id: str):
         return get_game(game_id).snapshot()
+
+    @app.get('/api/games/{game_id}/hand')
+    def hand(game_id: str):
+        try:
+            return JSONResponse(get_game(game_id).human_view(),
+                                headers={'Cache-Control': 'private, no-store'})
+        except ValueError as exc:
+            raise HTTPException(404, detail=str(exc)) from exc
+
+    @app.post('/api/games/{game_id}/action')
+    async def human_action(game_id: str, data: HumanAction):
+        try:
+            return await get_game(game_id).human_action(data.index, data.expected_step)
+        except ValueError as exc:
+            raise HTTPException(409, detail=str(exc)) from exc
 
     @app.post('/api/games/{game_id}/control')
     async def control(game_id: str, data: Control):

@@ -151,8 +151,15 @@ def test_session_limit_and_control_guards(tmp_path):
     manager = ArenaManager(tmp_path / 'registry', tmp_path / 'replays',
                            allow_baseline=True, max_sessions=1)
     game = manager.create(('@random',) * 3, seed=1)
-    with pytest.raises(ValueError, match='full'):
+    game.running = True
+    with pytest.raises(ValueError, match='running'):
         manager.create(('@random',) * 3)
+    game.running = False
+    newer = manager.create(('@random',) * 3, seed=2)
+    assert len(manager.games) == 1 and newer.game_id in manager.games
+    assert manager.get(game.game_id).env.engine.state_digest() == game.env.engine.state_digest()
+    assert len(manager.games) == 1
+    game = manager.get(game.game_id)
     async def exercise():
         await game.control('play')
         with pytest.raises(ValueError, match='pause'):

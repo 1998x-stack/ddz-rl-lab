@@ -53,13 +53,14 @@ def initialize_actor(spec: NetworkSpec, current: dict, historical: list[tuple[st
                      redeal_penalty: float) -> None:
     global _ACTIVE, _FROZEN, _EPSILON, _BID_EPSILON, _MAX_STEPS, _HIST_PROB, _REDEAL_PENALTY
     torch.set_num_threads(1)
-    _ACTIVE = RoleBundle(spec, "cpu")
+    if _ACTIVE is None or _ACTIVE.spec != spec:
+        _ACTIVE = RoleBundle(spec, "cpu")
     _ACTIVE.load_state_dict(current)
-    _FROZEN = []
-    for name, weights in historical:
-        frozen = RoleBundle(spec, "cpu")
+    if [name for name, _ in _FROZEN] != [name for name, _ in historical] or any(
+            bundle.spec != spec for _, bundle in _FROZEN):
+        _FROZEN = [(name, RoleBundle(spec, "cpu")) for name, _ in historical]
+    for (_, frozen), (_, weights) in zip(_FROZEN, historical):
         frozen.load_state_dict(weights)
-        _FROZEN.append((name, frozen))
     _EPSILON, _MAX_STEPS, _HIST_PROB = epsilon, max_steps, historical_probability
     _BID_EPSILON = bid_epsilon
     _REDEAL_PENALTY = redeal_penalty
@@ -117,19 +118,54 @@ def collect_batch(seeds: list[int], *, spec: NetworkSpec, weights: dict,
                   bid_epsilon: float, max_steps: int,
                   historical_probability: float, redeal_penalty: float,
                   workers: int) -> list[ActorResult]:
-    """Spawn workers only when requested; preserve task ordering for determinism.
+    """Standalone deterministic collection; Trainer reuses an ActorPool across batches."""
+    with ActorPool(workers) as pool:
+        return pool.collect(seeds, spec=spec, weights=weights, historical=historical,
+                            epsilon=epsilon, bid_epsilon=bid_epsilon,
+                            max_steps=max_steps, historical_probability=historical_probability,
+                            redeal_penalty=redeal_penalty)
 
-    Model snapshots are sent once per worker at process initialization. A new
-    executor is used each training batch so policy staleness is bounded.
-    """
-    args = (spec, weights, historical, epsilon, bid_epsilon, max_steps,
-            historical_probability, redeal_penalty)
-    if workers == 1:
-        initialize_actor(*args)
-        return [rollout_actor(seed) for seed in seeds]
-    if workers < 1:
-        raise ValueError("workers must be positive")
-    ctx = mp.get_context("spawn")
-    with ProcessPoolExecutor(max_workers=workers, mp_context=ctx,
-                             initializer=initialize_actor, initargs=args) as pool:
-        return list(pool.map(rollout_actor, seeds))
+
+def _rollout_chunk(args: tuple, indexed_seeds: list[tuple[int, int]]) -> list[tuple[int, ActorResult]]:
+    initialize_actor(*args)
+    return [(index, rollout_actor(seed)) for index, seed in indexed_seeds]
+
+
+class ActorPool:
+    """Persistent workers refreshed at each learner batch; no stale policy decisions."""
+
+    def __init__(self, workers: int):
+        if workers < 1:
+            raise ValueError('workers must be positive')
+        self.workers = workers
+        self.executor: ProcessPoolExecutor | None = None
+
+    def __enter__(self) -> 'ActorPool':
+        if self.workers > 1:
+            self.executor = ProcessPoolExecutor(max_workers=self.workers,
+                                                mp_context=mp.get_context('spawn'))
+        return self
+
+    def __exit__(self, _type, _value, _traceback) -> None:
+        if self.executor is not None:
+            self.executor.shutdown(wait=True, cancel_futures=True)
+            self.executor = None
+
+    def collect(self, seeds: list[int], *, spec: NetworkSpec, weights: dict,
+                historical: list[tuple[str, dict]], epsilon: float,
+                bid_epsilon: float, max_steps: int, historical_probability: float,
+                redeal_penalty: float) -> list[ActorResult]:
+        if not seeds:
+            return []
+        args = (spec, weights, historical, epsilon, bid_epsilon, max_steps,
+                historical_probability, redeal_penalty)
+        if self.workers == 1:
+            return [result for _, result in _rollout_chunk(args, list(enumerate(seeds)))]
+        if self.executor is None:
+            raise RuntimeError('ActorPool must be entered before collecting')
+        indexed_seeds = list(enumerate(seeds))
+        shards = [indexed_seeds[worker::self.workers]
+                  for worker in range(min(self.workers, len(seeds)))]
+        futures = [self.executor.submit(_rollout_chunk, args, shard) for shard in shards]
+        indexed = [item for future in futures for item in future.result()]
+        return [result for _, result in sorted(indexed, key=lambda item: item[0])]

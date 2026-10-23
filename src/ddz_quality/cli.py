@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .analysis import QualityError, analyze_runs
 from .cooperation import interaction_from_crossplay
+from .play_audit import audit_replay_dir
 from .retention import prune_history
 
 
@@ -46,6 +47,16 @@ def main() -> None:
     c.add_argument('--draws', type=int, default=2000)
     c.add_argument('--min-deals', type=int, default=30)
     c.add_argument('--report', type=Path)
+    p = sub.add_parser('play-audit', help='verify completed Arena replays and inspect play decisions')
+    p.add_argument('--replay-dir', type=Path, default=Path('runs/arena-replays'))
+    p.add_argument('--example-limit', type=int, default=20)
+    p.add_argument('--report', type=Path)
+    d = sub.add_parser('export-decisions', help='export verified Arena decisions with all legal candidates')
+    d.add_argument('--replay-dir', type=Path, default=Path('runs/arena-replays'))
+    d.add_argument('--output', type=Path, required=True)
+    d.add_argument('--include-incomplete', action='store_true',
+                   help='include verified session journals without terminal labels')
+    d.add_argument('--report', type=Path)
     args = parser.parse_args()
     try:
         if args.command == 'analyze':
@@ -55,6 +66,14 @@ def main() -> None:
         elif args.command == 'retention':
             result = prune_history(args.run, keep_recent=args.keep_recent,
                                    keep_best=args.keep_best, apply=args.apply)
+        elif args.command == 'play-audit':
+            if not 0 <= args.example_limit <= 100:
+                raise QualityError('example-limit must be 0..100')
+            result = audit_replay_dir(args.replay_dir, example_limit=args.example_limit)
+        elif args.command == 'export-decisions':
+            from .decision_data import export_decisions
+            result = export_decisions(args.replay_dir, args.output,
+                                      include_incomplete=args.include_incomplete)
         else:
             from ddz_eval.crossplay import load_lineup, run_crossplay
             from ddz_registry import ModelRegistry

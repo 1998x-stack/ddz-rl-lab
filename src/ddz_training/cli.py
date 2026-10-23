@@ -21,6 +21,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch-episodes", type=int, default=8)
     parser.add_argument("--eval-games", type=int, default=16)
     parser.add_argument("--eval-every", type=int, default=40)
+    parser.add_argument('--eval-opponent', choices=['random', 'reasonable'], default='random')
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--hidden", type=int, default=128)
     parser.add_argument("--lr", type=float, default=0.0003)
@@ -53,6 +54,7 @@ def main() -> None:
     if args.command == "train":
         config = TrainConfig(episodes=args.episodes, batch_episodes=args.batch_episodes,
                              eval_games=args.eval_games, eval_every=args.eval_every,
+                             eval_opponent=args.eval_opponent,
                              seed=args.seed, hidden=args.hidden, lr=args.lr,
                              epsilon=args.epsilon, bid_epsilon=args.bid_epsilon,
                              max_steps=args.max_steps,
@@ -81,7 +83,8 @@ def main() -> None:
         load_checkpoint(args.checkpoint, bundle)
         if args.command == "evaluate":
             result = evaluate_bundle(bundle, seed=args.seed, games=args.eval_games,
-                                     max_steps=args.max_steps)
+                                     max_steps=args.max_steps,
+                                     play_opponent=args.eval_opponent)
         else:
             frozen = [(str(path), load_frozen(path, args.device))
                       for path in args.opponent_checkpoint]

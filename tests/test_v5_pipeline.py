@@ -100,6 +100,25 @@ def test_spawn_multiprocess_actor(tmp_path):
     assert len(train.replay) > 0
 
 
+def test_persistent_actor_pool_refresh_matches_serial_collection():
+    from ddz_training.actors import ActorPool, collect_batch
+    spec = NetworkSpec(hidden=12)
+    first = RoleBundle(spec)
+    second = RoleBundle(spec)
+    options = dict(spec=spec, historical=[], epsilon=.15, bid_epsilon=.7,
+                   max_steps=1200, historical_probability=0., redeal_penalty=1.)
+    seeds = [719, 720, 721]
+    with ActorPool(2) as pool:
+        before = pool.collect(seeds, weights=first.state_dict(), **options)
+        after = pool.collect(seeds, weights=second.state_dict(), **options)
+    expected_before = collect_batch(seeds, weights=first.state_dict(), workers=1, **options)
+    expected_after = collect_batch(seeds, weights=second.state_dict(), workers=1, **options)
+    for actual, expected in ((before, expected_before), (after, expected_after)):
+        assert [item.seed for item in actual] == seeds
+        assert [(item.samples, item.decisions, item.truncated) for item in actual] == [
+            (item.samples, item.decisions, item.truncated) for item in expected]
+
+
 def test_validation():
     for arguments in [dict(actor_workers=0), dict(replay_capacity=0),
                       dict(replay_sample_size=0), dict(history_probability=1.1)]:

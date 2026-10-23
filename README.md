@@ -434,3 +434,30 @@ Cross-seed confidence bounds are provided only for comparable configurations and
 
 ### 全手牌分析（显式开启、本机限定）
 默认公开 Arena 快照仍隐藏其他玩家手牌。调试规则时可在本机使用 `ddz-arena --host 127.0.0.1 --allow-baseline --allow-debug-hands`，显示排序后的三家手牌与跟牌/自由领牌状态。调试接口不用于 RL Observation、不可在公网开启；公开 WebSocket 和普通对局 API 仍不包含隐藏手牌。
+
+### 真人对局与体验日志
+
+在本机 Arena 的座位 0 选择“我来出牌”，座位 1、2 选择已注册模型，创建牌局后点击“播放”。轮到真人时，页面显示自己的手牌与合法叫牌、抢牌、出牌或不出操作；选择牌点数量后可提交出牌。刷新页面会找回最后一局，服务重启后可从校验过的会话日志恢复为暂停状态，再点击“播放”继续。
+
+真人手牌只通过 `/api/games/{id}/hand` 向本机操作员返回，公开快照和 WebSocket 不含手牌。每一步动作和会话状态写入 `runs/arena-replays/sessions/`，结束时完整可验证回放写入 `runs/arena-replays/{id}.json`，Loguru 动作摘要写入 `logs/`。反馈时请附上页面显示的 Game ID 或回放文件名，便于复现具体牌局。
+
+局域网访问可以运行 `scripts/serve_lan.py`：传入本机局域网 IP、包含该 IP SAN 的 TLS 证书和私钥、以及权限为 `0600` 的操作员令牌文件。脚本在 `IP:8765` 提供 HTTP 跳转，在 `IP:8766` 提供 HTTPS Arena；首次访问自签证书需要在浏览器确认信任，然后用操作员令牌登录。此服务仅用于受信任的局域网，保持回放和令牌文件不对外公开。
+
+Arena 的三模型观战牌局会在三个座位下显示按牌点整理的完整手牌；此画面只供已登录操作员观察。真人对局只显示真人自己的手牌，对手手牌仍保持隐藏。公开状态和 WebSocket 始终不包含未公开的牌。
+
+Arena 最多同时把 12 局保留在内存中。创建新局时，已结束或暂停的旧局会自动归档到会话日志，仍可凭 Game ID 恢复；所有保留在内存里的牌局都正在运行时才会拒绝创建。完成回放仍存放在 `runs/arena-replays/`。
+
+新训练实验可显式选用 v2 观察与出牌策略，并用较强的合法启发式对手做评估：
+
+```bash
+OMP_NUM_THREADS=1 ddz-train train --model-schema ddz-candidate-mlp-v2 \
+  --eval-opponent reasonable --episodes 1000 --batch-episodes 16 \
+  --updates-per-batch 2 --actor-workers 2 --eval-every 100 \
+  --eval-games 64 --output runs/new-v2
+```
+
+现有 v1 checkpoint 的结构和行为保持原样；不要把 v2 权重用于 v1 网络。对不同训练种子、历史对手和真人反馈的评估仍有必要。
+
+### 完整对局与训练数据审计
+
+`scripts/batch_arena_audit.py` 可让当前活跃模型三席完整对局并逐局校验回放；`ddz-quality play-audit` 标出漏掉一手出完与需要复核的拆牌/危险让牌；`ddz-quality export-decisions` 从已验证回放导出每步的完整合法候选、选择和来源。可加 `--include-incomplete` 纳入受保护的未完成会话，但它们没有终局标签。历史数据没有行为概率或人工专家标签，导出器不会编造。实际 100 局结果、奖励函数及规则版本设计见[深度审计](docs/DEEP_TRAINING_AUDIT_20261023.md)和[训练数据设计](docs/PLAY_DATA_TRAINING_DESIGN.md)。

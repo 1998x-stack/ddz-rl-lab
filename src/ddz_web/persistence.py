@@ -73,29 +73,45 @@ class ArenaJournal:
         finally:
             Path(tmp).unlink(missing_ok=True)
 
+    def _read_path(self, path: Path) -> dict[str, Any] | None:
+        try:
+            if path.is_symlink() or not path.is_file() or not _ID.fullmatch(path.stem):
+                return None
+            if path.stat().st_size > MAX_JOURNAL_BYTES:
+                return None
+            data = json.loads(path.read_text('utf-8'))
+            if (data.get('schema') != SESSION_SCHEMA or data.get('game_id') != path.stem or
+                type(data.get('seed')) is not int or not 0 <= data['seed'] < 2**32 or
+                not isinstance(data.get('actions'), list) or len(data['actions']) > 1200 or
+                not isinstance(data.get('model_ids'), list) or len(data['model_ids']) != 3 or
+                not isinstance(data.get('model_sha256'), list) or len(data['model_sha256']) != 3 or
+                not isinstance(data.get('rng_states'), list) or len(data['rng_states']) != 3 or
+                type(data.get('delay')) not in (int, float) or
+                not 0.05 <= data['delay'] <= 3.0 or
+                type(data.get('completed')) is not bool or
+                type(data.get('random_bidding', False)) is not bool):
+                return None
+            return data
+        except (ValueError, OSError, TypeError, KeyError, AttributeError):
+            return None
+
+    def read_one(self, game_id: str) -> dict[str, Any] | None:
+        return self._read_path(self._path(game_id))
+
     def read_all(self, limit: int) -> list[dict[str, Any]]:
         records = []
-        for path in sorted(self.directory.glob('*.json'), key=lambda f: f.stat().st_mtime, reverse=True)[:max(limit * 3, 20)]:
+        def modified(path: Path) -> float:
             try:
-                if path.is_symlink() or not _ID.fullmatch(path.stem) or path.stat().st_size > MAX_JOURNAL_BYTES:
-                    continue
-                data = json.loads(path.read_text('utf-8'))
-                if (data.get('schema') != SESSION_SCHEMA or data.get('game_id') != path.stem or
-                    type(data.get('seed')) is not int or not 0 <= data['seed'] < 2**32 or
-                    not isinstance(data.get('actions'), list) or len(data['actions']) > 1200 or
-                    not isinstance(data.get('model_ids'), list) or len(data['model_ids']) != 3 or
-                    not isinstance(data.get('model_sha256'), list) or len(data['model_sha256']) != 3 or
-                    not isinstance(data.get('rng_states'), list) or len(data['rng_states']) != 3 or
-                    type(data.get('delay')) not in (int, float) or
-                    not 0.05 <= data['delay'] <= 3.0 or
-                    type(data.get('completed')) is not bool or
-                    type(data.get('random_bidding', False)) is not bool):
-                    continue
+                return path.lstat().st_mtime
+            except OSError:
+                return -1.0
+        for path in sorted(self.directory.glob('*.json'), key=modified,
+                           reverse=True)[:max(limit * 3, 20)]:
+            data = self._read_path(path)
+            if data is not None:
                 records.append(data)
                 if len(records) == limit:
                     break
-            except (ValueError, OSError, TypeError, KeyError):
-                continue
         return records
 
     @staticmethod

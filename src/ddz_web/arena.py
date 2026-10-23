@@ -12,6 +12,7 @@ import os
 import random
 import secrets
 import tempfile
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -92,6 +93,15 @@ class ArenaGame:
                                status=self.status, error=self.error,
                                random_bidding=self.random_bidding)
 
+    def human_view(self) -> dict:
+        if self.policy_ids[0] != '@human':
+            raise ValueError('game has no human seat')
+        obs = self.env.observe(0, event_limit=16) if not self.env.done else None
+        return {'game_id': self.game_id, 'step_index': self.env.engine.state.step_index,
+                'your_turn': self.env.acting_seat == 0 and not self.env.done,
+                'own_counts': list(obs.own_counts) if obs else [],
+                'legal_actions': [a.to_dict() for a in obs.legal_actions] if obs and self.env.acting_seat == 0 else []}
+
     def subscribe(self) -> asyncio.Queue:
         queue: asyncio.Queue = asyncio.Queue(maxsize=4)
         self.subscribers.add(queue)
@@ -122,6 +132,11 @@ class ArenaGame:
                 return self.snapshot()
             seat = self.env.acting_seat
             assert seat is not None
+            if self.policy_ids[seat] == '@human':
+                self.running = False
+                self.status = 'awaiting_human'
+                self._publish()
+                return self.snapshot()
             policy = self.policies[seat]
             obs = self.env.current_observation(event_limit=16)
             try:
@@ -139,9 +154,7 @@ class ArenaGame:
                     decision = await asyncio.to_thread(policy.act, obs, self.rngs[seat], 0.0)
                     idx = decision.local_index
                     role = decision.role
-                event = self.env.step(idx, include_digest=False)
-                if self.journal is not None:
-                    self.journal.save(self)
+                self._apply_action(idx, seat, role)
             except Exception as exc:
                 self.running = False
                 self.status = "error"
@@ -149,16 +162,39 @@ class ArenaGame:
                 logger.bind(game_id=self.game_id, seat=seat).exception("arena_step_failed")
                 self._publish()
                 return self.snapshot()
-            logger.bind(game_id=self.game_id, seat=seat, role=role,
-                        step_index=self.env.engine.state.step_index).debug("arena_action")
-            if event.terminated or event.truncated:
-                self.running = False
-                self.status = "finished" if event.terminated else "truncated"
-                replay = self.env.export_replay()
-                replay["model_ids"] = list(self.policy_ids)
-                replay["random_bidding"] = self.random_bidding
-                _atomic_json(self.replay_dir / f"{self.game_id}.json", replay)
-                logger.bind(game_id=self.game_id, outcome=replay["winner"]).info("arena_game_ended")
+            self._publish()
+            return self.snapshot()
+
+    def _apply_action(self, idx: int, seat: int, role: str) -> None:
+        event = self.env.step(idx, include_digest=False)
+        if self.journal is not None:
+            self.journal.save(self)
+        logger.bind(game_id=self.game_id, seat=seat, role=role,
+                    step_index=self.env.engine.state.step_index).info('arena_action')
+        if event.terminated or event.truncated:
+            self.running = False
+            self.status = 'finished' if event.terminated else 'truncated'
+            replay = self.env.export_replay()
+            replay['model_ids'] = list(self.policy_ids)
+            replay['model_sha256'] = list(self.model_hashes)
+            replay['random_bidding'] = self.random_bidding
+            _atomic_json(self.replay_dir / f'{self.game_id}.json', replay)
+            logger.bind(game_id=self.game_id, outcome=replay['winner']).info('arena_game_ended')
+
+    async def human_action(self, index: int, expected_step: int) -> dict:
+        async with self.lock:
+            if self.policy_ids[0] != '@human' or self.env.done or self.env.acting_seat != 0:
+                raise ValueError('not your turn')
+            if expected_step != self.env.engine.state.step_index:
+                raise ValueError('stale turn; refresh your hand')
+            if type(index) is not int or not 0 <= index < len(self.env.legal_actions()):
+                raise ValueError('invalid legal action index')
+            self._apply_action(index, 0, '@human')
+            if not self.env.done:
+                self.running = True
+                self.status = 'running'
+                if self.task is None or self.task.done():
+                    self.task = asyncio.create_task(self._autoplay(), name=f'arena:{self.game_id}')
             self._publish()
             return self.snapshot()
 
@@ -189,6 +225,8 @@ class ArenaGame:
         elif action == "step":
             if self.running:
                 raise ValueError("pause before stepping")
+            if self.policy_ids[self.env.acting_seat or 0] == '@human' and not self.env.done:
+                raise ValueError('use your hand to choose an action')
             return await self.step_once()
         elif action == "play" and not self.env.done and self.status != "error":
             self.running = True
@@ -213,11 +251,14 @@ class ArenaGame:
 class ArenaManager:
     def __init__(self, registry_dir: Path, replay_dir: Path,
                  *, allow_baseline: bool = False, max_sessions: int = 12):
+        if type(max_sessions) is not int or max_sessions < 1:
+            raise ValueError('max_sessions must be positive')
         self.registry = ModelRegistry(registry_dir)
         self.replay_dir = Path(replay_dir)
         self.allow_baseline = allow_baseline
         self.max_sessions = max_sessions
         self.games: dict[str, ArenaGame] = {}
+        self._game_lock = threading.RLock()
         self._models: dict[tuple[str, str], RoleBundle] = {}
         self.journal = ArenaJournal(self.replay_dir)
         self._restore_games()
@@ -228,6 +269,8 @@ class ArenaManager:
                 "baseline_enabled": self.allow_baseline}
 
     def _load_model(self, model_id: str) -> RoleBundle | None:
+        if model_id == '@human':
+            return None
         if model_id in {"@random", "@reasonable"}:
             if not self.allow_baseline:
                 raise ValueError("baseline mode is disabled; register a trained inference bundle")
@@ -243,10 +286,10 @@ class ArenaManager:
 
     def create(self, ids: tuple[str, str, str], *, seed: int | None = None,
                delay: float = .7, random_bidding: bool = False) -> ArenaGame:
-        if len(self.games) >= self.max_sessions:
-            raise ValueError("arena is full; restart server to clear completed sessions")
         if len(ids) != 3 or not all(isinstance(x, str) for x in ids):
             raise ValueError("exactly three model IDs required")
+        if '@human' in ids[1:]:
+            raise ValueError('human player must use seat 0')
         if not MIN_DELAY <= delay <= MAX_DELAY:
             raise ValueError("invalid playback speed")
         if type(random_bidding) is not bool:
@@ -257,54 +300,91 @@ class ArenaManager:
             raise ValueError("seed must be unsigned 32-bit integer")
         policies = tuple(self._load_model(x) for x in ids)
         game_id = secrets.token_hex(12)
-        hashes = tuple(x if x in {"@random", "@reasonable"} else self.registry.verify(x, load_weights=False)["sha256"] for x in ids)
+        hashes = tuple(x if x in {"@random", "@reasonable", "@human"} else self.registry.verify(x, load_weights=False)["sha256"] for x in ids)
         game = ArenaGame(game_id, DDZEnv(seed), ids, policies,
                          tuple(random.Random(seed + i * 1009) for i in range(3)),
                          self.replay_dir, random_bidding=random_bidding, journal=self.journal,
                          model_hashes=hashes, delay=delay)
-        self.journal.save(game)
-        self.games[game_id] = game
+        with self._game_lock:
+            self._make_room()
+            self.journal.save(game)
+            self.games[game_id] = game
         logger.bind(game_id=game_id, models=ids, seed=seed).info("arena_created")
+        return game
+
+    def _make_room(self) -> None:
+        if len(self.games) < self.max_sessions:
+            return
+        # Journals and completed replays remain on disk. An archived session can
+        # be restored by ID, while only the bounded working set stays in memory.
+        idle = [game for game in self.games.values()
+                if not game.running and (game.task is None or game.task.done())]
+        if not idle:
+            raise ValueError('arena is full; all sessions are running')
+        def priority(game: ArenaGame) -> tuple[int, float]:
+            finished = game.env.done or game.status == 'error'
+            try:
+                modified = self.journal._path(game.game_id).stat().st_mtime
+            except OSError:
+                modified = 0.0
+            return (0 if finished else 1, modified)
+        victim = min(idle, key=priority)
+        del self.games[victim.game_id]
+        logger.bind(game_id=victim.game_id, status=victim.status).info('arena_session_archived')
+
+    def _restore_record(self, record: dict[str, Any]) -> ArenaGame:
+        ids = tuple(record['model_ids'])
+        if not all(isinstance(i, str) for i in ids):
+            raise ValueError('invalid model references')
+        policies = tuple(self._load_model(i) for i in ids)
+        hashes = tuple(i if i in {'@random', '@reasonable', '@human'} else
+                       self.registry.verify(i, load_weights=False)['sha256'] for i in ids)
+        if hashes != tuple(record['model_sha256']):
+            raise ValueError('model pin differs from journal')
+        env = ArenaJournal.restore_env(record)
+        seed = record['seed']
+        rngs = tuple(random.Random(seed + i * 1009) for i in range(3))
+        for rng, state in zip(rngs, record['rng_states']):
+            ArenaJournal.restore_rng(rng, state)
+        status = ('truncated' if env.engine.state.truncated else 'finished') if env.done else 'paused'
+        game = ArenaGame(record['game_id'], env, ids, policies, rngs,
+                         self.replay_dir, journal=self.journal, model_hashes=hashes,
+                         delay=record['delay'], status=status,
+                         random_bidding=record.get('random_bidding', False))
+        if env.done:
+            replay = env.export_replay()
+            replay['model_ids'] = list(ids)
+            replay['model_sha256'] = list(hashes)
+            replay['random_bidding'] = game.random_bidding
+            _atomic_json(self.replay_dir / f'{game.game_id}.json', replay)
         return game
 
     def _restore_games(self) -> None:
         """Restore only exact verified journals, always in paused state."""
         for record in self.journal.read_all(self.max_sessions):
             try:
-                ids = tuple(record['model_ids'])
-                if not all(isinstance(i, str) for i in ids):
-                    raise ValueError('invalid model references')
-                policies = tuple(self._load_model(i) for i in ids)
-                hashes = tuple(i if i in {'@random', '@reasonable'} else
-                               self.registry.verify(i, load_weights=False)['sha256'] for i in ids)
-                if hashes != tuple(record['model_sha256']):
-                    raise ValueError('model pin differs from journal')
-                env = ArenaJournal.restore_env(record)
-                seed = record['seed']
-                rngs = tuple(random.Random(seed + i * 1009) for i in range(3))
-                for rng, state in zip(rngs, record['rng_states']):
-                    ArenaJournal.restore_rng(rng, state)
-                state_status = ('truncated' if env.engine.state.truncated else 'finished') if env.done else 'paused'
-                game = ArenaGame(record['game_id'], env, ids, policies, rngs,
-                                 self.replay_dir, journal=self.journal, model_hashes=hashes,
-                                 delay=record['delay'], status=state_status,
-                                 random_bidding=record.get('random_bidding', False))
+                game = self._restore_record(record)
                 self.games[game.game_id] = game
-                if env.done:
-                    replay = env.export_replay()
-                    replay['model_ids'] = list(ids)
-                    replay['random_bidding'] = game.random_bidding
-                    _atomic_json(self.replay_dir / f'{game.game_id}.json', replay)
                 logger.bind(game_id=game.game_id).info('arena_session_restored')
             except Exception as exc:
                 logger.bind(game_id=record.get('game_id'), error=type(exc).__name__).warning(
                     'arena_session_restore_rejected')
 
     def get(self, game_id: str) -> ArenaGame:
-        try:
-            return self.games[game_id]
-        except KeyError:
-            raise KeyError("unknown arena game") from None
+        with self._game_lock:
+            if game_id in self.games:
+                return self.games[game_id]
+            try:
+                record = self.journal.read_one(game_id)
+                if record is None:
+                    raise KeyError(game_id)
+                game = self._restore_record(record)
+                self._make_room()
+                self.games[game_id] = game
+                logger.bind(game_id=game_id).info('arena_session_restored_on_demand')
+                return game
+            except (ValueError, OSError, RuntimeError, AssertionError, KeyError) as exc:
+                raise KeyError('unknown arena game') from exc
 
     async def close(self) -> None:
         for game in list(self.games.values()):
