@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import pytest
+pytest.importorskip('torch')  # training extra is deliberately absent from core-only CI jobs
 
 from ddz_experiments.runner import ExperimentRunner, ExperimentError
 
