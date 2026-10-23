@@ -14,6 +14,7 @@ from loguru import logger
 from .arena import ArenaManager
 from .lab import LabStore, LabError
 from .auth import OperatorAuth, COOKIE
+from .debug_hands import hand_debug_payload
 
 STATIC_DIR = Path(__file__).resolve().parent / 'static'
 
@@ -49,7 +50,8 @@ def create_app(registry_dir: str | Path = 'runs/registry',
                log_dir: str | Path = 'logs',
                jobs_dir: str | Path | None = None,
                operator_token: str | None = None,
-               secure_auth_cookie: bool = False) -> FastAPI:
+               secure_auth_cookie: bool = False,
+               allow_debug_hands: bool = False) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         yield
@@ -197,6 +199,26 @@ def create_app(registry_dir: str | Path = 'runs/registry',
     @app.get('/api/health')
     def health():
         return {'status': 'ok', 'schema': 'ddz-arena-v1'}
+
+    @app.get('/static/handview.js')
+    def handview_javascript():
+        return FileResponse(STATIC_DIR / 'handview.js', media_type='text/javascript')
+
+    def local_debug_allowed(request: Request) -> bool:
+        # Reject remote peers; Origin and Host are never authentication.
+        peer = request.client.host if request.client else ''
+        return bool(allow_debug_hands and peer in {'127.0.0.1', '::1', 'testclient'})
+
+    @app.get('/api/debug/config')
+    def debug_config(request: Request):
+        return {'enabled': local_debug_allowed(request)}
+
+    @app.get('/api/games/{game_id}/debug/hands')
+    def debug_hands(request: Request, game_id: str):
+        if not local_debug_allowed(request):
+            raise HTTPException(404, detail='debug hands unavailable')
+        return JSONResponse(hand_debug_payload(get_game(game_id)),
+                            headers={'Cache-Control': 'private, no-store'})
 
     @app.get('/api/models')
     def models():

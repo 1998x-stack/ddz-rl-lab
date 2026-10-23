@@ -430,3 +430,7 @@ ddz-quality cooperation --registry-dir runs/registry \
 ```
 
 Cross-seed confidence bounds are provided only for comparable configurations and at least 3 independent training seeds. Alert thresholds are **diagnostic heuristics**, not automatic evidence of regression. Cooperation tests evaluate paired initial deals, not absolute player strength. Archival retention never deletes `latest.pt`, `best.weights.pt`, or the model registry. All changes are covered in [v12 technical notes](docs/V12_TRAINING_QUALITY.md).
+
+
+### 全手牌分析（显式开启、本机限定）
+默认公开 Arena 快照仍隐藏其他玩家手牌。调试规则时可在本机使用 `ddz-arena --host 127.0.0.1 --allow-baseline --allow-debug-hands`，显示排序后的三家手牌与跟牌/自由领牌状态。调试接口不用于 RL Observation、不可在公网开启；公开 WebSocket 和普通对局 API 仍不包含隐藏手牌。

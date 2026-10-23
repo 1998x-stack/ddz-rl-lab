@@ -46,7 +46,8 @@ class ArenaJournal:
             'schema': SESSION_SCHEMA, 'game_id': game.game_id,
             'seed': env.engine.seed, 'model_ids': list(game.policy_ids),
             'model_sha256': list(game.model_hashes),
-            'delay': game.delay, 'state_digest': env.engine.state_digest(),
+            'delay': game.delay, 'random_bidding': game.random_bidding,
+            'state_digest': env.engine.state_digest(),
             'actions': [a.to_dict() for a in env.engine.action_history],
             'rng_states': [rng.getstate() for rng in game.rngs],
             'completed': env.done,
@@ -87,7 +88,8 @@ class ArenaJournal:
                     not isinstance(data.get('rng_states'), list) or len(data['rng_states']) != 3 or
                     type(data.get('delay')) not in (int, float) or
                     not 0.05 <= data['delay'] <= 3.0 or
-                    type(data.get('completed')) is not bool):
+                    type(data.get('completed')) is not bool or
+                    type(data.get('random_bidding', False)) is not bool):
                     continue
                 records.append(data)
                 if len(records) == limit:

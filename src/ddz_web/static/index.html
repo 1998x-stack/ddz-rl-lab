@@ -20,6 +20,10 @@
 <div class="center"><div class="status" id="phase">创建牌局开始</div><div class="cards" id="cards" aria-label="上一次出牌"></div><div class="hint" id="turn">当前等待中</div></div><div class="self seat" id="seat0"><span class="avatar">00</span><div><b>Agent 0</b><small>— 张</small></div></div></div>
 <aside class="sidebar"><div class="panel controllers"><h2>PLAYBACK CONTROL</h2><div class="buttons"><button id="play" disabled>▶ 播放</button><button id="pause" disabled>Ⅱ 暂停</button><button id="step" disabled>下一步 →</button></div><label>每步间隔 <output id="speed-value">0.7 秒</output><input id="speed" type="range" min="0.05" max="3" step="0.05" value="0.7" disabled></label><a id="replay" class="replay disabled" aria-disabled="true">下载完整回放</a></div>
 <div class="panel timeline"><h2>PUBLIC EVENT LOG</h2><ol id="events"><li>尚无事件</li></ol></div></aside></section>
+<section id="hands-analyzer" class="panel hands-analyzer" hidden>
+<div class="lab-heading"><h2>全手牌分析 · 仅本机调试</h2><small>仅供规则排错，不能作为 AI 输入</small></div>
+<p id="trick-explanation" class="trick-explanation" aria-live="polite">等待牌局状态</p>
+<div id="hands-rows" class="hands-rows"></div></section>
 </div>
 <section id="tab-runs" class="lab-view" hidden><div class="panel">
 <div class="lab-heading"><div><h2>TRAINING METRICS</h2><p class="subtitle">持久化 JSONL · 只读 · 非实时训练控制</p></div><div class="lab-actions"><select id="run-select" aria-label="选择训练任务"></select><button type="button" id="run-refresh">刷新</button></div></div>
@@ -32,4 +36,4 @@
 <section id="tab-jobs" class="lab-view" hidden><div class="panel"><div class="lab-heading"><h2>DURABLE TRAINING JOBS</h2><button id="jobs-refresh" type="button">刷新</button></div><p class="subtitle">只读队列和血缘摘要；训练任务由服务器 CLI 操作，不允许网页执行任意训练命令。</p><div id="jobs-list" class="data-list"></div></div></section>
 <section id="tab-matrix" class="lab-view" hidden><div class="panel"><div class="lab-heading"><h2>ROLE CROSS-PLAY MATRIX</h2><div class="lab-actions"><select id="matrix-select" aria-label="选择角色模型组合评测"></select><button id="matrix-refresh" type="button">刷新</button></div></div><p class="subtitle">每个组合使用相同初始牌局；地主胜率不是单一模型的绝对实力，也不直接触发晋升。</p><div id="matrix-list" class="data-list"></div></div></section>
 <footer>本项目为无资金机制的斗地主 RL 研究模拟。训练和竞技指标不构成真实对局能力保证。Web 控制台默认只供本机操作，如启用操作员令牌也应通过可信 HTTPS 代理部署，且不等于多用户权限管理。</footer></main>
-<script src="/static/auth.js" defer></script><script src="/static/app.js" defer></script><script src="/static/lab.js" defer></script></body></html>
+<script src="/static/auth.js" defer></script><script src="/static/app.js" defer></script><script src="/static/handview.js" defer></script><script src="/static/lab.js" defer></script></body></html>

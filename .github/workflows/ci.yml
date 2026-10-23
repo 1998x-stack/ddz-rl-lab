@@ -154,3 +154,14 @@ jobs:
           assert b['schema'] == 'ddz-farmer-interaction-v1'
           assert not b['eligible']  # two deals are insufficient for statistical claims
           PYV12
+
+      - name: v2 encoder integration and protected debug-hand legality regression
+        run: |
+          OMP_NUM_THREADS=1 python -m pytest tests/test_rule_gate_and_debug_hands.py -q
+          node --check src/ddz_web/static/handview.js
+          python - <<'PYRULE'
+          from ddz_core import counts_from_ranks, recognize_patterns, beats
+          q=recognize_patterns(counts_from_ranks('Q','Q'))[0]
+          two=recognize_patterns(counts_from_ranks('2','2'))[0]
+          assert not beats(q,two)
+          PYRULE

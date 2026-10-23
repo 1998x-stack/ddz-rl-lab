@@ -18,6 +18,8 @@ def main() -> None:
     parser.add_argument('--runs-dir', default='runs', help='read-only training artifacts root')
     parser.add_argument('--jobs-dir', default='runs/jobs', help='read-only job queue metadata root')
     parser.add_argument('--reports-dir', default='runs/reports', help='read-only tournament reports root')
+    parser.add_argument('--allow-debug-hands', action='store_true',
+                        help='LOCAL ONLY: inspect all hands, unsafe for fair competitive play')
     parser.add_argument('--allow-baseline', action='store_true',
                         help='enable NON-learning random policies for development only')
     parser.add_argument('--allowed-host', action='append', help='trusted HTTP Host header value; repeatable')
@@ -29,9 +31,11 @@ def main() -> None:
         parser.error('operator token env variable is missing/empty')
     if args.host not in {'localhost', '127.0.0.1', '::1'} and not token:
         parser.error('non-loopback bind requires --operator-token-env and HTTPS reverse proxy')
+    if args.allow_debug_hands and args.host not in {'localhost','127.0.0.1','::1'}:
+        parser.error('--allow-debug-hands requires loopback bind')
     configure_logging(args.log_dir)
     uvicorn.run(create_app(args.registry_dir, args.replay_dir,
-                           allow_baseline=args.allow_baseline,
+                           allow_baseline=args.allow_baseline, allow_debug_hands=args.allow_debug_hands,
                            runs_dir=args.runs_dir, reports_dir=args.reports_dir,
                            log_dir=args.log_dir, jobs_dir=args.jobs_dir, operator_token=token,
                            secure_auth_cookie=args.secure_auth_cookie,
