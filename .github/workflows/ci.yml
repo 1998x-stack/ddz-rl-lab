@@ -2,8 +2,9 @@ name: Unit Tests
 on:
   push:
   pull_request:
+
 jobs:
-  test:
+  game-core-env:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -17,3 +18,24 @@ jobs:
       - run: python -m pytest -q
       - run: ddz-demo --games 3 --seed 2026 --replay-out /tmp/demo.json
       - run: ddz-env-demo --episodes 3 --seed 2026 --replay-out /tmp/env-demo.json
+  torch-training:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU PyTorch and project
+        run: |
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e '.[dev,rl]'
+      - run: OMP_NUM_THREADS=1 python -m pytest -q
+      - name: Self-play/checkpoint/evaluation smoke
+        run: >-
+          OMP_NUM_THREADS=1 ddz-train train --episodes 2
+          --batch-episodes 1 --eval-every 2 --eval-games 2
+          --hidden 32 --output /tmp/ddz-training-ci
+      - name: Inference bundle evaluation
+        run: >-
+          OMP_NUM_THREADS=1 ddz-train evaluate --checkpoint /tmp/ddz-training-ci/best.weights.pt
+          --eval-games 2 --seed 34001

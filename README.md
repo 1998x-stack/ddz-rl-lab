@@ -1,4 +1,4 @@
-# DDZ RL Lab — v3.0
+# DDZ RL Lab — v4.0
 
 [![CI](https://github.com/1998x-stack/ddz-rl-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/1998x-stack/ddz-rl-lab/actions/workflows/ci.yml)
 
@@ -6,23 +6,24 @@
 
 - `v1.0`: deterministic authoritative game core, legal rank-multiset action generation, call/rob rules, Loguru, canonical replays and tests.
 - `v2.0`: P2 environment specification and safe-forward promotion workflow.
-- **`v3.0`: runnable P2 multi-agent environment, candidate encodings, terminal team rewards, fixed global PettingZoo action catalogue, AEC adapter, CLI rollouts, tests and documentation.**
-- **Not included:** DMC / PPO neural network training, checkpoints, model server, Web UI, money, wagers, payments, or Tencent integration.
+- `v3.0`: runnable multi-agent environment, candidate encodings, terminal team rewards, PettingZoo AEC, and test baselines.
+- **`v4.0`: runnable PyTorch role-aware candidate-action MLP, synchronous Deep Monte Carlo self-play, Loguru metrics, checkpoint save/resume, deterministic external-random-opponent evaluation, and CI smoke tests.**
+- **Not included:** distributed actor–learner cluster, production-ready strong models, PPO, model-serving API, Web UI, money, wagers, payments, or Tencent integration.
 
 > This is an independent rules-based educational simulator, not Tencent's proprietary code or a live mini-program replica. Rule divergences and versioned house rules are described in [`docs/RULE_SPEC.md`](docs/RULE_SPEC.md).
 
 ## Requirements
 
 - Python **3.10+**, Linux/macOS (Windows should work but is not in CI).
-- GPU is **not** required for v3.0. Training neural networks is a later stage.
-- `loguru` is a base dependency; PettingZoo, Gymnasium and NumPy are optional RL extras.
+- CPU is sufficient for smoke training; CUDA may accelerate the learner but is not required.
+- `loguru` is a base dependency. Install `.[train]` for PyTorch training and `.[rl]` for PettingZoo/Gymnasium.
 
 ## Quick start
 
 ```bash
 git clone https://github.com/1998x-stack/ddz-rl-lab.git
 cd ddz-rl-lab
-git switch v3.0
+git switch v4.0
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -50,8 +51,30 @@ ddz-demo --games 3 --seed 2026
 | Global catalogue | `ddz_env.catalogue` | Stable global IDs for PettingZoo Discrete action space |
 | PettingZoo | `ddz_env.pettingzoo_env` | Optional `AECEnv` adapter with action mask |
 | Baseline | `ddz_env.baselines` | Seeded random legal-action rollouts and CLI |
+| Training models | `ddz_models` | Role Q(s,a) network, private-safe candidate inference |
+| Learner / Checkpoint | `ddz_training` | Self-play MC regression, atomic SHA-256 model bundles, resume |
+| Evaluation | `ddz_eval` | Frozen random-opponent seeded bilateral trials |
 | Diagnostics | `ddz_core.logging_config` | Loguru rotating logs |
 | Tests | `tests/` | Unit, random rollout, replay and PettingZoo API tests |
+
+## Run real RL training (v4.0)
+
+```bash
+# Synchronous, inspectable actor-learner baseline (CPU compatible).
+ddz-train train --episodes 200 --batch-episodes 8 --eval-games 32 \
+  --eval-every 40 --seed 2026 --output runs/dmc-v4 --log-dir logs
+
+# Load the best integrity-checked inference bundle.
+ddz-train evaluate --checkpoint runs/dmc-v4/best.weights.pt \
+  --seed 7800 --eval-games 200
+
+# Continue from saved optimizer and RNG states.
+ddz-train train --checkpoint runs/dmc-v4/latest.pt --episodes 100 \
+  --batch-episodes 8 --eval-every 40 --eval-games 32 --seed 2026 \
+  --output runs/dmc-v4
+```
+
+Read [v4 training architecture and limitations](docs/V4_TRAINING.md) before comparing models. Training loss is **not** game strength. A 2-episode CI run only proves functionality.
 
 ## Using the compact environment
 
