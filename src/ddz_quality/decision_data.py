@@ -17,7 +17,7 @@ from ddz_core.actions import Action
 from ddz_core.engine import GameEngine, replay
 from ddz_core.state import Team
 from ddz_env.encoding import encode_observation_v2, encoder_ids
-from ddz_models.policy import role_for_observation
+from ddz_core.roles import role_for_observation
 
 from .analysis import QualityError
 

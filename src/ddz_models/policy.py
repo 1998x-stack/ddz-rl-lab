@@ -13,15 +13,7 @@ from .network import CandidateQNetwork, NetworkSpec
 ROLES = ("bid", "landlord", "farmer_up", "farmer_down")
 
 
-def role_for_observation(obs: PlayerObservation) -> str:
-    if obs.phase in (Phase.CALL, Phase.ROB):
-        return "bid"
-    if obs.phase != Phase.PLAY or obs.landlord is None:
-        raise ValueError("cannot select playing policy until landlord is known")
-    if obs.seat == obs.landlord:
-        return "landlord"
-    # Seat order progresses clockwise +1; landlord+1 is DOWN, +2 is UP.
-    return "farmer_down" if obs.seat == (obs.landlord + 1) % 3 else "farmer_up"
+from ddz_core.roles import role_for_observation
 
 
 @dataclass(frozen=True)
