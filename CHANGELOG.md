@@ -1,10 +1,18 @@
 # Changelog
 
-## 0.1.0 — Stage P0 + P1
+## v3.0 — P2 runnable environment
 
-- Defined stage-by-stage Code Category architecture and rule version.
-- Implemented deck, bid/call/rob state machine, classic legal-play generation and comparison.
-- Added rank-based semantic action format and restricted player observations.
-- Added deterministic shuffle/redeal, clone, public game events, replay hash verification.
-- Added Loguru logging configuration, baseline auto-game CLI and automated tests.
-- No reinforcement learning, model checkpoint or web functionality yet.
+- `ddz_env.DDZEnv`: deterministic sequential multi-agent environment, local candidate action indexing, per-seat observations, terminal team rewards, and replay export.
+- Versioned normalized observation and action features, public/private boundary and fixed feature dimensions.
+- Global fixed semantic action catalogue and optional PettingZoo AEC adapter with action masks / sparse legal IDs.
+- `ddz-env-demo` seeded three-agent baseline rollouts; extended tests and CI smoke run.
+- Detailed environment documentation, constraints and stage roadmap.
+- No model training, GPU requirement, cash/equivalent currency, or remote Tencent integration.
+
+## v2.0 — Environment design
+
+- P2 ENV specification and guarded main promotion workflow.
+
+## v1.0 — Rules foundation
+
+- P0/P1 deterministic three-seat game rules, call/rob, legal patterns, Loguru, CLI, replay and tests.

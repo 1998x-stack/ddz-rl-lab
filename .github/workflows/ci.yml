@@ -13,6 +13,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: python -m pip install -e '.[dev]'
+      - run: python -m pip install -e '.[dev,rl]'
       - run: python -m pytest -q
       - run: ddz-demo --games 3 --seed 2026 --replay-out /tmp/demo.json
+      - run: ddz-env-demo --episodes 3 --seed 2026 --replay-out /tmp/env-demo.json
