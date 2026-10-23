@@ -16,6 +16,7 @@ from ddz_env.environment import DDZEnv
 from ddz_models.network import NetworkSpec
 from ddz_models.policy import RoleBundle
 from ddz_registry import ModelRegistry
+from ddz_quality.policy_identity import policy_fingerprint
 from ddz_training.checkpoints import load_checkpoint
 
 
@@ -29,22 +30,32 @@ def run(bundle: RoleBundle, seed: int, override: bool) -> tuple[str, int]:
         obs = env.current_observation(event_limit=16)
         choice = bundle.act(obs, rng, 0.0)
         idx = choice.local_index
-        if (override and obs.phase == Phase.PLAY and obs.seat != obs.landlord and
-                obs.last_play_seat is not None and obs.last_play_seat != obs.landlord and
-                obs.remaining_counts[obs.landlord] <= 2 and
-                obs.legal_actions[idx].kind == ActionKind.PASS):
+        # Define the two policy variants EXPLICITLY. Older v2 always
+        # passed when a farmer's teammate led, even against a critical
+        # one- or two-card landlord. The new candidate allows a legal beat.
+        critical = (obs.phase == Phase.PLAY and obs.seat != obs.landlord and
+                    obs.last_play_seat is not None and
+                    obs.last_play_seat != obs.landlord and
+                    obs.remaining_counts[obs.landlord] <= 2)
+        if critical:
+            passing = next((i for i, action in enumerate(obs.legal_actions)
+                            if action.kind == ActionKind.PASS), None)
             playable = [i for i, action in enumerate(obs.legal_actions)
                         if action.kind == ActionKind.PLAY]
-            if playable:
-                model = bundle.models[choice.role]
-                state = torch.tensor(bundle.encode_observation(obs), dtype=torch.float32)
-                candidates = torch.tensor([bundle.encode_action(obs, obs.legal_actions[i])
-                                           for i in playable], dtype=torch.float32)
-                with torch.inference_mode():
-                    scores = model.score_legal(state, candidates).tolist()
-                idx = playable[max(range(len(playable)), key=lambda j: scores[j] +
-                               .15 * reasonable_action_score(obs, obs.legal_actions[playable[j]]))]
-                interventions += 1
+            if passing is not None and playable:
+                if not override:
+                    idx = passing  # historical unconditional teammate-PASS rule
+                elif idx == passing:
+                    model = bundle.models[choice.role]
+                    state = torch.tensor(bundle.encode_observation(obs), dtype=torch.float32)
+                    candidates = torch.tensor([bundle.encode_action(obs, obs.legal_actions[i])
+                                               for i in playable], dtype=torch.float32)
+                    with torch.inference_mode():
+                        scores = model.score_legal(state, candidates).tolist()
+                    idx = playable[max(range(len(playable)), key=lambda j: scores[j] +
+                                   .15 * reasonable_action_score(obs, obs.legal_actions[playable[j]]))]
+                if override and idx != passing:
+                    interventions += 1
         env.step(idx, include_digest=False)
     if not env.done or env.engine.state.truncated:
         raise RuntimeError(f'incomplete game seed={seed}')
@@ -84,7 +95,10 @@ def main() -> None:
     draws = sorted(sum(paired[bootstrap_rng.randrange(a.games)] for _ in range(a.games)) /
                    a.games for _ in range(10000))
     report = {'schema': 'ddz-urgent-pass-ablation-v1', 'model_id': model_id,
-              'model_sha256': info['sha256'], 'games': a.games,
+              'model_sha256': info['sha256'],
+              'policy_sha256': policy_fingerprint(info['sha256'],info['spec'])['sha256'],
+              'comparison': 'historical_unconditional_pass_vs_conditional_urgent_response',
+              'games': a.games,
               'intervened_games': sum(r['interventions'] > 0 for r in rows),
               'interventions': sum(r['interventions'] for r in rows),
               'switched_to_farmer': switched_to_farmer,
