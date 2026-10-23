@@ -199,7 +199,7 @@ class DMCTrainer:
                       "actor_workers", "replay_capacity", "replay_sample_size",
                       "updates_per_batch", "history_capacity", "history_probability",
                       "early_stop_patience_evals", "min_score_improvement",
-                      "redeal_penalty", "model_schema", "history_keep_top"):
+                      "redeal_penalty", "model_schema", "history_keep_top", "reviewed_feedback_dir"):
             if saved.get(field, getattr(self.config, field)) != getattr(self.config, field):
                 raise ValueError(f"cannot resume with changed training config: {field}")
         self.episodes_seen = int(payload["episodes_seen"])
