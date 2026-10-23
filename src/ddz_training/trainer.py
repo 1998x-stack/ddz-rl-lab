@@ -79,6 +79,9 @@ class Experience:
     action: tuple[float, ...]
     actor_seat: int
     return_value: float
+    preferred_action: tuple[float, ...] | None = None
+    alternative_action: tuple[float, ...] | None = None
+    deal_id: str = ''
 
 
 class DMCTrainer:
@@ -155,7 +158,20 @@ class DMCTrainer:
                                    device=self.bundle.device)
             opt = self.optimizers[role]
             opt.zero_grad(set_to_none=True)
-            loss = F.mse_loss(model(observations, actions), targets)
+            loss = F.smooth_l1_loss(model(observations, actions), targets)
+            paired = [x for x in batch if x.preferred_action is not None and
+                      x.alternative_action is not None]
+            if paired:
+                pair_states = torch.tensor([x.observation for x in paired],
+                                           dtype=torch.float32, device=self.bundle.device)
+                good = torch.tensor([x.preferred_action for x in paired],
+                                    dtype=torch.float32, device=self.bundle.device)
+                bad = torch.tensor([x.alternative_action for x in paired],
+                                   dtype=torch.float32, device=self.bundle.device)
+                # Only incontrovertible local preference: finishing now beats not finishing.
+                # Do not infer tactical preferences from merely winning a long game.
+                margin = .2 + model(pair_states, bad) - model(pair_states, good)
+                loss = loss + .2 * F.softplus(margin).mean()
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"nonfinite loss for {role}")
             loss.backward()

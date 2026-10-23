@@ -41,10 +41,15 @@ def label_samples(data: list[tuple[str, tuple[float, ...], tuple[float, ...], in
                   *, final_deal: int, truncated: bool,
                   reward: tuple[float, float, float], redeal_penalty: float) -> list[Experience]:
     """Give abandoned auctions their own target, never a later deal's result."""
-    return [Experience(role, state, action, seat,
-                       (-redeal_penalty if deal < final_deal or truncated
-                        else float(reward[seat])))
-            for role, state, action, seat, deal in data]
+    result = []
+    for entry in data:
+        role, state, action, seat, deal, *extra = entry
+        good, bad, deal_id = (extra if extra else (None, None, ''))
+        # Abandoned auction labels are opportunity costs, not a later deal's win.
+        target = (-redeal_penalty if deal < final_deal or truncated
+                  else (1.0 if reward[seat] > 0 else -1.0))
+        result.append(Experience(role, state, action, seat, target, good, bad, deal_id))
+    return result
 
 
 def initialize_actor(spec: NetworkSpec, current: dict, historical: list[tuple[str, dict]],
@@ -95,9 +100,17 @@ def rollout_actor(seed: int) -> ActorResult:
                            else _EPSILON) if learned else 0.0
             choice = bundle.act(obs, rng, exploration)
         if learned:
+            # Rule-proven preference: if there is a legal immediate finish, prefer
+            # it over any legal alternative. Never declare a heuristic expert label.
+            finish = next((a for a in obs.legal_actions
+                           if a.kind.value == 'PLAY' and a.counts == obs.own_counts), None)
+            alternative = next((a for a in obs.legal_actions
+                                if a != finish), None) if finish else None
+            good = (_ACTIVE.encode_action(obs, finish) if finish and alternative else None)
+            bad = (_ACTIVE.encode_action(obs, alternative) if finish and alternative else None)
             data.append((choice.role, _ACTIVE.encode_observation(obs),
                          _ACTIVE.encode_action(obs, obs.legal_actions[choice.local_index]), obs.seat,
-                         obs.deal_index))
+                         obs.deal_index, good, bad, f'{seed}:{obs.deal_index}'))
         env.step(choice.local_index, include_digest=False)
         decisions += 1
     if not env.done:

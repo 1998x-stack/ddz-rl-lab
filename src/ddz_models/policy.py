@@ -63,6 +63,7 @@ class RoleBundle:
                 idx = max(finish, key=lambda i: float(scores[i]))
             elif (obs.landlord is not None and obs.seat != obs.landlord and
                   obs.last_play_seat is not None and obs.last_play_seat != obs.landlord and
+                  obs.remaining_counts[obs.landlord] > 2 and
                   any(a.kind == ActionKind.PASS for a in actions)):
                 idx = next(i for i, a in enumerate(actions) if a.kind == ActionKind.PASS)
             elif exploratory:

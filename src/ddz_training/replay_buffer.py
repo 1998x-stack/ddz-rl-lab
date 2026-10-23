@@ -37,7 +37,8 @@ class ReplayBuffer:
     def state_dict(self) -> dict:
         return {"capacity": self.capacity, "seen": self.seen,
                 "entries": [(x.role, x.observation, x.action, x.actor_seat,
-                             x.return_value) for x in self._buffer]}
+                             x.return_value, x.preferred_action, x.alternative_action,
+                             x.deal_id) for x in self._buffer]}
 
     def load_state_dict(self, data: dict) -> None:
         from .trainer import Experience
@@ -46,7 +47,7 @@ class ReplayBuffer:
         entries = data["entries"]
         if len(entries) > self.capacity:
             raise ValueError("oversized replay snapshot")
-        if not all(len(x) == 5 for x in entries):
+        if not all(len(x) in (5, 8) for x in entries):
             raise ValueError("malformed replay entry")
         self._buffer.clear()
         self._buffer.extend(Experience(*x) for x in entries)
