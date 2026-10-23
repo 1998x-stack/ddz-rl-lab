@@ -4,6 +4,9 @@ import random
 from pathlib import Path
 
 import pytest
+pytest.importorskip('torch')
+pytest.importorskip('fastapi')
+pytest.importorskip('httpx')
 from fastapi.testclient import TestClient
 
 from ddz_env.environment import DDZEnv
