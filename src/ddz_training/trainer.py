@@ -49,6 +49,7 @@ class TrainConfig:
     model_schema: str = "ddz-candidate-mlp-v1"
     learning_target_version: str = "ddz-team-normalized-pairwise-v1"
     reviewed_feedback_dir: str | None = None
+    bid_counterfactual_deals: int = 0
 
     def __post_init__(self) -> None:
         positives = ("episodes", "batch_episodes", "eval_games", "eval_every", "hidden",
@@ -68,6 +69,8 @@ class TrainConfig:
             raise ValueError("history_probability must be in [0,1]")
         if not math.isfinite(self.redeal_penalty) or not 0 <= self.redeal_penalty <= 2:
             raise ValueError("redeal_penalty must be in [0,2]")
+        if type(self.bid_counterfactual_deals) is not int or not 0 <= self.bid_counterfactual_deals <= 8:
+            raise ValueError("bid_counterfactual_deals must be 0..8")
         if self.reviewed_feedback_dir is not None and self.model_schema != "ddz-candidate-mlp-v2":
             raise ValueError("reviewed feedback vectors require v2 encoder")
         if self.learning_target_version != "ddz-team-normalized-pairwise-v1":
@@ -199,7 +202,8 @@ class DMCTrainer:
                       "actor_workers", "replay_capacity", "replay_sample_size",
                       "updates_per_batch", "history_capacity", "history_probability",
                       "early_stop_patience_evals", "min_score_improvement",
-                      "redeal_penalty", "model_schema", "history_keep_top", "reviewed_feedback_dir"):
+                      "redeal_penalty", "model_schema", "history_keep_top",
+                      "reviewed_feedback_dir", "bid_counterfactual_deals"):
             if saved.get(field, getattr(self.config, field)) != getattr(self.config, field):
                 raise ValueError(f"cannot resume with changed training config: {field}")
         self.episodes_seen = int(payload["episodes_seen"])
@@ -229,6 +233,8 @@ class DMCTrainer:
                 results = self._collect(seeds, pool=pool)
                 self.meter.record(results)
                 self.replay.add([sample for result in results for sample in result.samples])
+                if self.config.bid_counterfactual_deals:
+                    self._learn_bid_counterfactual(seeds[:self.config.bid_counterfactual_deals])
                 self.episodes_seen += count
                 stats = self.meter.snapshot()
                 stats.update(episodes_seen=self.episodes_seen, replay_size=len(self.replay),
@@ -268,6 +274,49 @@ class DMCTrainer:
                     "update={} samples={} loss={}", self.updates, len(samples), losses)
             if self.config.reviewed_feedback_dir:
                 self._learn_reviewed_preferences()
+
+    def _learn_bid_counterfactual(self, seeds: list[int]) -> None:
+        """Matched initial-auction CALL/DECLINE rollouts for the BID network.
+
+        This teacher observes the complete deal only inside the offline simulator,
+        while the network receives the acting seat's redacted observation. The
+        teacher policy is frozen @reasonable, so there is no causal guarantee
+        against unseen opponents or for later ROB choices.
+        """
+        from ddz_core.engine import GameEngine
+        from ddz_core.actions import Action, ActionKind
+        from ddz_quality.auction_audit import _continuation
+        states, actions, targets = [], [], []
+        for seed in seeds:
+            engine = GameEngine(seed)
+            seat = engine.state.current_seat
+            obs = engine.observe(seat, event_limit=16)
+            for kind in (ActionKind.CALL, ActionKind.DECLINE_CALL):
+                action = Action.simple(kind)
+                reward = _continuation(seed, action, seat)
+                if reward is None:
+                    continue
+                states.append(self.bundle.encode_observation(obs))
+                actions.append(self.bundle.encode_action(obs, action))
+                targets.append(float(reward))
+        if not targets:
+            return
+        model = self.bundle.models['bid']
+        model.train()
+        data = torch.tensor(states, dtype=torch.float32, device=self.bundle.device)
+        chosen = torch.tensor(actions, dtype=torch.float32, device=self.bundle.device)
+        labels = torch.tensor(targets, dtype=torch.float32, device=self.bundle.device)
+        loss = F.smooth_l1_loss(model(data, chosen), labels)
+        if not torch.isfinite(loss):
+            raise FloatingPointError('nonfinite paired auction loss')
+        optimizer = self.optimizers['bid']
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0, error_if_nonfinite=True)
+        optimizer.step()
+        self.updates += 1
+        logger.bind(component='auction',samples=len(targets)).info(
+            'paired_bid_teacher_loss={:.4f}',float(loss.item()))
 
     def _learn_reviewed_preferences(self) -> None:
         """Review-gated local pairwise loss, independent of terminal outcome."""

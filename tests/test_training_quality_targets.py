@@ -32,3 +32,12 @@ def test_pairwise_margin_changes_parameters(tmp_path):
     b=tuple([1.0]*t.bundle.spec.action_dim)
     t.learn([Experience('landlord',s,a,0,-1.0, b,a,'7:0')])
     assert t.updates==1
+
+def test_optional_paired_bid_teacher_trains_on_observed_inputs(tmp_path):
+    config=TrainConfig(episodes=1,eval_games=1,eval_every=1,hidden=16,
+                       bid_counterfactual_deals=1,output=str(tmp_path/'paired'))
+    trainer=DMCTrainer(config)
+    trainer._learn_bid_counterfactual([99041])
+    assert trainer.updates==1
+    with pytest.raises(ValueError,match='0..8'):
+        TrainConfig(bid_counterfactual_deals=9)
