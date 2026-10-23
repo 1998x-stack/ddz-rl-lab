@@ -1,3 +1,12 @@
+## v12.0 — Training quality and reproducibility
+
+- Add `ddz-quality analyze`: bounded, validated evaluation/throughput JSONL parsing, per-run anomaly flags, independent-seed aggregation and seed-cluster bootstrap only for verified-compatible runs.
+- Add matched-deal farmer role 2x2 interaction analysis with complete-case filtering, paired bootstrap CI, and explicitly exploratory interpretation.
+- Add history archive SHA-verified guarded pruning, safe dry-run default and `history_keep_top` retention for best-scoring archival snapshots; protect latest, best and registry weights.
+- Extend training CLI with `--history-keep-top`, preserve backwards compatible default and validate changed config on resume.
+- Add CLI, documentation, v12 regression tests and CI smoke checks.
+- No learned bidding change, no automatic checkpoint champion promotion, no new Web auth or multi-host scheduling.
+
 ## v11.0 — explicit crash recovery, local resource control and safer matrix statistics
 
 - Migrate existing v10 SQLite job queues in place; preserve earlier jobs and expose CPU, GPU, timeout and retry lineage metadata.

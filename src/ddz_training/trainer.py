@@ -39,6 +39,7 @@ class TrainConfig:
     updates_per_batch: int = 1
     history_capacity: int = 6
     history_probability: float = .35
+    history_keep_top: int = 0
     early_stop_patience_evals: int = 0
     min_score_improvement: float = 0.0
 
@@ -53,6 +54,8 @@ class TrainConfig:
         if (type(self.early_stop_patience_evals) is not int or
                 self.early_stop_patience_evals < 0 or self.min_score_improvement < 0):
             raise ValueError('invalid early stopping configuration')
+        if type(self.history_keep_top) is not int or self.history_keep_top < 0 or self.history_keep_top > 100:
+            raise ValueError("history_keep_top must be 0..100")
         if not 0 <= self.history_probability <= 1:
             raise ValueError("history_probability must be in [0,1]")
 
@@ -144,7 +147,7 @@ class DMCTrainer:
         for field in ("seed", "hidden", "lr", "epsilon", "batch_episodes", "max_steps",
                       "actor_workers", "replay_capacity", "replay_sample_size",
                       "updates_per_batch", "history_capacity", "history_probability",
-                      "early_stop_patience_evals", "min_score_improvement"):
+                      "early_stop_patience_evals", "min_score_improvement", "history_keep_top"):
             if saved.get(field, getattr(self.config, field)) != getattr(self.config, field):
                 raise ValueError(f"cannot resume with changed training config: {field}")
         self.episodes_seen = int(payload["episodes_seen"])
@@ -241,10 +244,9 @@ class DMCTrainer:
             save_checkpoint(dest, self.bundle, {}, episodes_seen=self.episodes_seen,
                             updates=self.updates, rng=self.rng, metrics=self.latest_metrics,
                             config=params, inference_only=True)
-            checkpoints = sorted(dest.parent.glob("step-*.weights.pt"))
-            for old in checkpoints[:-self.config.history_capacity]:
-                old.unlink()
-                old.with_suffix(old.suffix + ".json").unlink(missing_ok=True)
+            from ddz_quality.retention import prune_history
+            prune_history(self.output, keep_recent=self.config.history_capacity,
+                          keep_best=self.config.history_keep_top, apply=True)
         append_metrics(self.output / "evaluations.jsonl", self.latest_metrics)
         logger.bind(component="evaluation").info(
             "checkpoint episodes={} score={:.4f} best={:.4f}",

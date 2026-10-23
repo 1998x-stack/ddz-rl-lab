@@ -120,3 +120,8 @@ Next: more robust on-disk session lifecycle, server auth for optional LAN deploy
 
 - `v9.0` delivered: foreground experiment runner, early stopping, role Cross-Play, single-operator auth.
 - `v10.0` delivered: persisted Arena recovery, bounded queued training jobs, role matrix and read-only Web projections.
+
+
+### v12.0 — Long-running quality gates (implemented)
+
+`ddz_quality` provides multi-seed training diagnosis, safe history archival retention, and matched-seed farmer-role interaction studies. CI gates added; no inference/ENV schema change. Longer-horizon convergence and benchmarking remain research tasks rather than claimed achievements.

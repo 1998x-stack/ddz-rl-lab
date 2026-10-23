@@ -404,3 +404,29 @@ Promotion is **not automatic**. The registry requires an immutable known model, 
 The bootstrap is a 95% percentile interval by default. Initial deals, not seat outcomes, are resampled; when several candidates are selected using one holdout, the reported confidence intervals are exploratory, not multiple-comparison-adjusted. Use a new, untouched confirmation set before making high-stakes claims. Explicitly separated holdout seeds are the operator's responsibility.
 
 See [`docs/V6_MODEL_SELECTION.md`](docs/V6_MODEL_SELECTION.md) for statistical limitations, registry layout, threat boundaries and test gates.
+
+## v12.0 — Long-training quality / multi-seed stability / farmer interaction
+
+Version v12 adds **offline, evidence-based QA** without changing the stable 54-card game rules, observation or action schemas. New code category: `src/ddz_quality/` (analysis, cooperation, retention, CLI).
+
+```bash
+# Independent seed runs should use identical evaluation/training settings:
+ddz-quality analyze --run runs/seed1 --run runs/seed2 --run runs/seed3 \
+  --draws 2000 --min-runs 3 --report runs/reports/quality.json
+
+# SHA-verified archive preview (non-destructive by default):
+ddz-quality retention --run runs/seed1 --keep-recent 6 --keep-best 3
+# After reviewing the candidates, opt-in to deleting eligible history files:
+ddz-quality retention --run runs/seed1 --keep-recent 6 --keep-best 3 --apply
+
+# Trained runs can preserve top-performing historical snapshots:
+ddz-train train --episodes 100 --history-capacity 6 --history-keep-top 3 \
+  --output runs/seed1
+
+# Fixed-landlord 2x2 farmer-role interaction study (registered models only):
+ddz-quality cooperation --registry-dir runs/registry \
+  --landlord lord1 --up-base up1 --up-candidate up2 \
+  --down-base down1 --down-candidate down2 --deals 200 --draws 2000
+```
+
+Cross-seed confidence bounds are provided only for comparable configurations and at least 3 independent training seeds. Alert thresholds are **diagnostic heuristics**, not automatic evidence of regression. Cooperation tests evaluate paired initial deals, not absolute player strength. Archival retention never deletes `latest.pt`, `best.weights.pt`, or the model registry. All changes are covered in [v12 technical notes](docs/V12_TRAINING_QUALITY.md).

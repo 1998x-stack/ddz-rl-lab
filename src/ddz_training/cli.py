@@ -36,6 +36,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--updates-per-batch", type=int, default=1)
     parser.add_argument("--history-capacity", type=int, default=6)
     parser.add_argument("--history-probability", type=float, default=.35)
+    parser.add_argument("--history-keep-top", type=int, default=0)
     parser.add_argument("--early-stop-patience-evals", type=int, default=0)
     parser.add_argument("--min-score-improvement", type=float, default=0.0)
     parser.add_argument("--opponent-checkpoint", action="append", type=Path, default=[])
@@ -57,6 +58,7 @@ def main() -> None:
                              updates_per_batch=args.updates_per_batch,
                              history_capacity=args.history_capacity,
                              history_probability=args.history_probability,
+                             history_keep_top=args.history_keep_top,
                              early_stop_patience_evals=args.early_stop_patience_evals,
                              min_score_improvement=args.min_score_improvement)
         trainer = DMCTrainer(config)

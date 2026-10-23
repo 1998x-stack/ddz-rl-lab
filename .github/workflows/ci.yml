@@ -134,3 +134,23 @@ jobs:
           assert len(result)==1 and result[0]['status']=='succeeded'
           assert result[0]['cpu_threads']==2 and result[0]['timeout_seconds']==180
           PYV11
+
+      - name: v12 training quality audit, retention and farmer interaction smoke
+        run: |
+          OMP_NUM_THREADS=1 python -m pytest tests/test_v12_quality.py -q
+          OMP_NUM_THREADS=1 ddz-quality analyze --run /tmp/ddz-v9-runs/ci-v9 --draws 100 --report /tmp/ddz-v12-quality.json
+          OMP_NUM_THREADS=1 ddz-quality retention --run /tmp/ddz-v5-ci --keep-recent 1 --keep-best 1
+          OMP_NUM_THREADS=1 ddz-quality cooperation --registry-dir /tmp/ddz-v6-registry \
+            --landlord baseline --up-base baseline --up-candidate baseline \
+            --down-base baseline --down-candidate baseline --deals 2 --draws 100 \
+            --report /tmp/ddz-v12-cooperation.json
+          python - <<'PYV12'
+          import json
+          from pathlib import Path
+          a = json.loads(Path('/tmp/ddz-v12-quality.json').read_text())
+          b = json.loads(Path('/tmp/ddz-v12-cooperation.json').read_text())
+          assert a['schema'] == 'ddz-training-quality-v1'
+          assert a['summary']['bootstrap_ci95'] is None  # a single run is not independent-seed evidence
+          assert b['schema'] == 'ddz-farmer-interaction-v1'
+          assert not b['eligible']  # two deals are insufficient for statistical claims
+          PYV12

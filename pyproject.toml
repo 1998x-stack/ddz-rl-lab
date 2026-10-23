@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ddz-rl-lab"
-version = "0.11.0"
+version = "0.12.0"
 description = "Reproducible three-seat Dou Dizhu reinforcement learning laboratory"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -29,6 +29,7 @@ ddz-experiment = "ddz_experiments.cli:main"
 ddz-crossplay = "ddz_eval.crossplay_cli:main"
 ddz-jobs = "ddz_experiments.jobs_cli:main"
 ddz-crossplay-matrix = "ddz_eval.matrix_cli:main"
+ddz-quality = "ddz_quality.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
