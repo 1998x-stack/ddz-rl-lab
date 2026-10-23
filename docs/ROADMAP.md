@@ -10,10 +10,16 @@ Crash-checked private Arena journals and paused restart recovery; SQLite local q
 with bounded subprocess workers and parent-run ancestry; common-seed role-checkpoint
 Cross-Play matrix; read-only Web job/matrix views. See `V10_RESILIENCE_AND_MATRIX.md`.
 
-## v11.0 candidates (not implemented)
+## v11.0 delivered
 
-Job reconciliation/cancellation and resource isolation, stronger tournament multiple-comparison
-corrections, long-run checkpoint quality validation and multi-host cluster architecture.
+Version 10 SQLite queue migration, explicit hash-verified retry of unfinished
+training episodes, safety interlocks for living orphan workers, runtime timeouts,
+CPU thread limits, exclusive configured CUDA device slots and Bonferroni-aware
+Cross-Play comparison diagnostics. See `V11_RECOVERY_AND_EVALUATION.md`.
+
+Still not implemented: multi-host scheduling, cgroup RAM/CPU hard quotas,
+GPU memory partitioning, automatic retry of unknown worker state,
+statistically validated strong policies, or automatic champion promotion.
 
 # 分阶段 Code Category / Package Roadmap
 

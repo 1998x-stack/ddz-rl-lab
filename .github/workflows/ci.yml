@@ -121,3 +121,16 @@ jobs:
           matrix = json.loads(Path('/tmp/ddz-v10-matrix.json').read_text())
           assert matrix['schema']=='ddz-crossplay-matrix-v1' and len(matrix['rows'])==1
           PYV10
+
+      - name: v11 migration, recovery, limits and matrix guardrails
+        run: |
+          OMP_NUM_THREADS=1 python -m pytest tests/test_v11_reliability.py -q
+          OMP_NUM_THREADS=1 ddz-jobs --runs-dir /tmp/ddz-v11-runs --jobs-dir /tmp/ddz-v11-jobs submit --spec examples/v9_smoke.json --cpu-threads 2 --timeout-seconds 180
+          OMP_NUM_THREADS=1 ddz-jobs --runs-dir /tmp/ddz-v11-runs --jobs-dir /tmp/ddz-v11-jobs work --parallel 1 --once
+          python - <<'PYV11'
+          from ddz_experiments.jobs import JobQueue
+          q = JobQueue('/tmp/ddz-v11-jobs','/tmp/ddz-v11-runs')
+          result = q.list()
+          assert len(result)==1 and result[0]['status']=='succeeded'
+          assert result[0]['cpu_threads']==2 and result[0]['timeout_seconds']==180
+          PYV11

@@ -15,6 +15,11 @@ def main() -> None:
     s.add_argument('--spec', required=True)
     s.add_argument('--resume', action='store_true')
     s.add_argument('--parent-experiment')
+    s.add_argument('--cpu-threads', type=int, default=1)
+    s.add_argument('--gpu-id', type=int)
+    s.add_argument('--timeout-seconds', type=int, default=0)
+    retry = sub.add_parser('retry')
+    retry.add_argument('job_id')
     q = sub.add_parser('status')
     q.add_argument('job_id')
     sub.add_parser('list')
@@ -26,7 +31,11 @@ def main() -> None:
     args = p.parse_args()
     jobs = JobQueue(args.jobs_dir, args.runs_dir)
     if args.command == 'submit':
-        output = jobs.submit(args.spec, resume=args.resume, parent_experiment=args.parent_experiment)
+        output = jobs.submit(args.spec, resume=args.resume, parent_experiment=args.parent_experiment,
+                             cpu_threads=args.cpu_threads, gpu_id=args.gpu_id,
+                             timeout_seconds=args.timeout_seconds)
+    elif args.command == 'retry':
+        output = jobs.retry(args.job_id)
     elif args.command == 'status':
         output = jobs.get(args.job_id)
     elif args.command == 'list':

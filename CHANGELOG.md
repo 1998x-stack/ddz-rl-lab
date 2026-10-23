@@ -1,3 +1,14 @@
+## v11.0 — explicit crash recovery, local resource control and safer matrix statistics
+
+- Migrate existing v10 SQLite job queues in place; preserve earlier jobs and expose CPU, GPU, timeout and retry lineage metadata.
+- Explicit `ddz-jobs retry`: verify `latest.pt` SHA-256 and resume only the uncompleted episodes. Never retry missing or corrupt checkpoints automatically.
+- Fix stale `experiment.json` episode counters after a crash: the verified learner checkpoint is authoritative.
+- Refuse concurrent supervisors when an orphan worker PID is still present; terminate timed-out process groups.
+- Per-job thread environment limits, CUDA visibility selection and GPU-slot exclusivity among jobs in a single scheduler.
+- Matrix evaluation supports at most 16 lineups (consistent with the underlying runner); includes paired-deal diagnostics and Bonferroni-aware bootstrap comparisons, suppressing adjusted intervals when draw resolution is inadequate.
+- New docs and six targeted tests; rules, ENV, model registry, Arena and manual promotion unchanged.
+- No cgroup memory enforcement, multi-host scheduling, automatic retry, guaranteed model convergence or online wagering.
+
 ## v10.0 — durable Arena + bounded training jobs + role Cross-Play matrix
 
 - Atomic private Arena journal on creation and every successful action; model SHA pin,

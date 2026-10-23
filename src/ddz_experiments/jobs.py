@@ -12,6 +12,7 @@ import fcntl
 import hashlib
 import json
 import os
+import signal
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -66,6 +67,18 @@ class JobQueue:
             raise JobError('jobs database must not be a symlink')
         with self._db() as db:
             db.executescript(SCHEMA)
+            # In-place upgrade of v10 SQLite queues without deleting submitted jobs.
+            existing = {row['name'] for row in db.execute('PRAGMA table_info(jobs)')}
+            migrations = {
+                'cpu_threads': 'INTEGER NOT NULL DEFAULT 1',
+                'gpu_id': 'INTEGER',
+                'timeout_seconds': 'INTEGER NOT NULL DEFAULT 0',
+                'worker_pid': 'INTEGER',
+                'retry_of': 'TEXT',
+            }
+            for column, declaration in migrations.items():
+                if column not in existing:
+                    db.execute(f'ALTER TABLE jobs ADD COLUMN {column} {declaration}')
 
     @contextmanager
     def _db(self) -> Iterator[sqlite3.Connection]:
@@ -80,10 +93,12 @@ class JobQueue:
             db.close()
 
     def submit(self, spec_path: str | Path, *, resume: bool = False,
-               parent_experiment: str | None = None) -> dict[str, Any]:
+               parent_experiment: str | None = None, cpu_threads: int = 1,
+               gpu_id: int | None = None, timeout_seconds: int = 0) -> dict[str, Any]:
         # Strict v9 schema validation remains the single source of truth.
         spec = _read_spec(Path(spec_path))
         experiment = _name(spec['id'])
+        self._check_resources(spec, cpu_threads, gpu_id, timeout_seconds)
         if parent_experiment is not None:
             _name(parent_experiment)
             if parent_experiment == experiment:
@@ -110,10 +125,85 @@ class JobQueue:
                           (experiment,)).fetchone():
                 raise JobError('experiment already queued or running')
             db.execute('''INSERT INTO jobs(job_id,experiment_id,parent_experiment,source_sha256,
-                       spec_json,resume,status,created_at) VALUES (?,?,?,?,?,?,?,?)''',
-                       (job_id, experiment, parent_experiment, sha, raw, int(resume), 'queued', _utc()))
+                       spec_json,resume,status,created_at,cpu_threads,gpu_id,timeout_seconds)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
+                       (job_id, experiment, parent_experiment, sha, raw, int(resume),
+                        'queued', _utc(), cpu_threads, gpu_id, timeout_seconds))
         logger.bind(job_id=job_id, experiment=experiment).info('training_job_queued')
         return self.get(job_id)
+
+    @staticmethod
+    def _check_resources(spec: dict, cpu_threads: int, gpu_id: int | None,
+                         timeout_seconds: int) -> None:
+        if type(cpu_threads) is not int or not 1 <= cpu_threads <= 32:
+            raise JobError('cpu_threads must be 1..32')
+        if type(timeout_seconds) is not int or not 0 <= timeout_seconds <= 86400:
+            raise JobError('timeout_seconds must be 0..86400')
+        if gpu_id is not None and (type(gpu_id) is not int or not 0 <= gpu_id <= 15):
+            raise JobError('gpu_id must be 0..15')
+        device = spec['training'].get('device', 'cpu')
+        if (device == 'cuda') != (gpu_id is not None):
+            raise JobError('CUDA jobs require a GPU slot; CPU/MPS jobs cannot reserve a GPU')
+
+    def retry(self, job_id: str) -> dict[str, Any]:
+        """Explicit manual retry from a hash-verified training checkpoint.
+
+        Retries only the unfinished part of the original invocation. Never
+        requeues an orphan automatically or reuses a possibly running PID.
+        """
+        self.get(job_id)  # Validate shape and existence.
+        with self._db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT * FROM jobs WHERE job_id=?', (job_id,)).fetchone()
+            if row['status'] not in {'failed', 'interrupted'}:
+                raise JobError('only failed/interrupted jobs can be retried')
+            if db.execute("SELECT 1 FROM jobs WHERE retry_of=? AND status IN ('queued','running','succeeded')",
+                          (job_id,)).fetchone():
+                raise JobError('job already has an active or successful retry')
+            if db.execute("SELECT 1 FROM jobs WHERE experiment_id=? AND status IN ('queued','running')",
+                          (row['experiment_id'],)).fetchone():
+                raise JobError('experiment is already queued or running')
+            if row['status'] == 'interrupted' and row['worker_pid']:
+                try:
+                    os.kill(row['worker_pid'], 0)
+                except ProcessLookupError:
+                    pass
+                except PermissionError as exc:
+                    raise JobError('old worker PID cannot be verified as stopped') from exc
+                else:
+                    raise JobError('old worker PID is still present; refuse duplicate execution')
+            run = self.runs_dir / row['experiment_id']
+            if run.is_symlink():
+                raise JobError('unsafe experiment directory')
+            path = run / 'latest.pt'
+            sidecar = path.with_suffix('.pt.json')
+            if path.is_symlink() or sidecar.is_symlink() or not path.is_file() or not sidecar.is_file():
+                raise JobError('no verified checkpoint available; cannot retry safely')
+            from ddz_training.checkpoints import _digest
+            metadata = json.loads(sidecar.read_text(encoding='utf-8'))
+            if (metadata.get('checkpoint') != 'latest.pt' or
+                    metadata.get('sha256') != _digest(path) or metadata.get('inference_only') is not False):
+                raise JobError('checkpoint verification failed')
+            state = ExperimentRunner(self.runs_dir).status(row['experiment_id'])
+            if state.get('status') == 'finished':
+                raise JobError('experiment already finished')
+            spec = json.loads(row['spec_json'])
+            baseline = int(state.get('previous_episodes', 0))
+            progressed = int(metadata['episodes_seen']) - baseline
+            remaining = int(spec['training']['episodes']) - progressed
+            if progressed < 0 or remaining <= 0:
+                raise JobError('checkpoint progress does not permit retry')
+            spec['training']['episodes'] = remaining
+            raw = json.dumps(spec, sort_keys=True, separators=(',', ':'), allow_nan=False)
+            digest = hashlib.sha256(raw.encode('utf-8')).hexdigest()
+            retry_id = uuid.uuid4().hex
+            db.execute('''INSERT INTO jobs(job_id,experiment_id,parent_experiment,
+                source_sha256,spec_json,resume,status,created_at,cpu_threads,gpu_id,
+                timeout_seconds,retry_of) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
+                (retry_id,row['experiment_id'],row['parent_experiment'],digest,raw,1,
+                 'queued',_utc(),row['cpu_threads'],row['gpu_id'],row['timeout_seconds'],job_id))
+        logger.bind(job_id=retry_id,retry_of=job_id).info('training_job_retry_queued')
+        return self.get(retry_id)
 
     def get(self, job_id: str) -> dict[str, Any]:
         if not isinstance(job_id, str) or len(job_id) != 32 or not all(c in '0123456789abcdef' for c in job_id):
@@ -128,7 +218,8 @@ class JobQueue:
     def _public(row: sqlite3.Row) -> dict[str, Any]:
         return {k: row[k] for k in ('job_id', 'experiment_id', 'parent_experiment',
                  'source_sha256', 'resume', 'status', 'created_at', 'started_at',
-                 'finished_at', 'exit_code', 'error')}
+                 'finished_at', 'exit_code', 'error', 'cpu_threads', 'gpu_id',
+                 'timeout_seconds', 'worker_pid', 'retry_of')}
 
     def list(self, *, limit: int = 100) -> list[dict[str, Any]]:
         if not 1 <= limit <= 500:
@@ -148,7 +239,11 @@ class JobQueue:
     def _claim_one(self) -> sqlite3.Row | None:
         with self._db() as db:
             db.execute('BEGIN IMMEDIATE')
-            row = db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created_at, job_id LIMIT 1").fetchone()
+            busy_gpus = {r['gpu_id'] for r in db.execute(
+                "SELECT gpu_id FROM jobs WHERE status='running' AND gpu_id IS NOT NULL")}
+            row = next((candidate for candidate in db.execute(
+                "SELECT * FROM jobs WHERE status='queued' ORDER BY created_at, job_id")
+                if candidate['gpu_id'] is None or candidate['gpu_id'] not in busy_gpus), None)
             if row:
                 db.execute("UPDATE jobs SET status='running',started_at=? WHERE job_id=? AND status='queued'",
                            (_utc(), row['job_id']))
@@ -161,7 +256,19 @@ class JobQueue:
                        ('succeeded' if code == 0 else 'failed', _utc(), code, error, job_id))
 
     def _mark_orphans(self) -> None:
-        # A new supervisor must not silently repeat unknown previous work.
+        # Never start another supervisor beside a potentially still-running
+        # orphan. A dead supervisor does not necessarily kill its child.
+        with self._db() as db:
+            orphaned = db.execute("SELECT worker_pid FROM jobs WHERE status='running' AND worker_pid IS NOT NULL").fetchall()
+            for row in orphaned:
+                try:
+                    os.kill(row['worker_pid'], 0)
+                except ProcessLookupError:
+                    pass
+                except PermissionError as exc:
+                    raise JobError('previous worker cannot be inspected; manual intervention required') from exc
+                else:
+                    raise JobError('possibly active orphan worker; manual intervention required')
         with self._db() as db:
             db.execute('''UPDATE jobs SET status='interrupted',finished_at=?,
                           error='supervisor exited; inspect experiment checkpoint before manual resume'
@@ -181,16 +288,21 @@ class JobQueue:
             except BlockingIOError as exc:
                 raise JobError('supervisor already running') from exc
             self._mark_orphans()
-            live: dict[str, tuple[subprocess.Popen, Any]] = {}
+            live: dict[str, tuple[subprocess.Popen, Any, float, int]] = {}
             completed = failed = 0
             try:
                 while True:
-                    for job_id, (proc, log) in list(live.items()):
+                    for job_id, (proc, log, started, timeout) in list(live.items()):
                         rc = proc.poll()
+                        timed_out = rc is None and timeout > 0 and time.monotonic()-started >= timeout
+                        if timed_out:
+                            self._terminate_group(proc)
+                            rc = 124
                         if rc is None:
                             continue
                         log.close()
-                        self._set_result(job_id, rc, None if rc == 0 else 'worker returned nonzero exit code')
+                        self._set_result(job_id, rc, 'worker timed out' if timed_out else
+                                         (None if rc == 0 else 'worker returned nonzero exit code'))
                         completed += 1
                         failed += (rc != 0)
                         del live[job_id]
@@ -208,19 +320,31 @@ class JobQueue:
                             fd = os.open(spec_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
                             with os.fdopen(fd, 'w', encoding='utf-8') as fp:
                                 fp.write(row['spec_json'] + '\n')
-                            log = log_path.open('ab')
+                            fd_log = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                            log = os.fdopen(fd_log, 'wb')
                             cmd = [sys.executable, '-m', 'ddz_experiments.job_worker',
                                    '--spec', str(spec_file), '--runs-dir', str(self.runs_dir),
                                    '--sha256', row['source_sha256']]
                             if row['resume']:
                                 cmd.append('--resume')
                             env = os.environ.copy()
+                            for variable in ('OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS',
+                                             'NUMEXPR_NUM_THREADS'):
+                                env[variable] = str(row['cpu_threads'])
+                            if row['gpu_id'] is not None:
+                                env['CUDA_VISIBLE_DEVICES'] = str(row['gpu_id'])
+                            else:
+                                env['CUDA_VISIBLE_DEVICES'] = ''
                             package_root = str(Path(__file__).resolve().parents[1])
                             env['PYTHONPATH'] = package_root + os.pathsep + env.get('PYTHONPATH', '')
                             proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
                                                     stdout=log, stderr=subprocess.STDOUT,
-                                                    cwd=self.root, close_fds=True, env=env)
-                            live[job_id] = (proc, log)
+                                                    cwd=self.root, close_fds=True, env=env,
+                                                    start_new_session=True)
+                            with self._db() as db:
+                                db.execute('UPDATE jobs SET worker_pid=? WHERE job_id=?',
+                                           (proc.pid, job_id))
+                            live[job_id] = (proc, log, time.monotonic(), row['timeout_seconds'])
                             logger.bind(job_id=job_id, pid=proc.pid).info('training_job_started')
                         except Exception as exc:
                             if 'log' in locals() and not log.closed:
@@ -233,15 +357,26 @@ class JobQueue:
                     time.sleep(poll_seconds)
             except BaseException:
                 # Interrupted supervisor does not pretend subprocesses completed.
-                for process, log in live.values():
-                    if process.poll() is None:
-                        process.terminate()
-                    try:
-                        process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait()
+                for process, log, _, _ in live.values():
+                    self._terminate_group(process)
                     log.close()
                 self._mark_orphans()
                 raise
             return {'completed': completed, 'failed': failed}
+
+    @staticmethod
+    def _terminate_group(proc: subprocess.Popen) -> None:
+        if proc.poll() is not None:
+            return
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.wait()

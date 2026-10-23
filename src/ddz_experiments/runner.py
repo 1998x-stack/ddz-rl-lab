@@ -104,7 +104,7 @@ class ExperimentRunner:
         if resume:
             if old is None or old.get('config_fingerprint') != _fingerprint(spec):
                 raise ExperimentError('resume config mismatch or uninitialized experiment')
-            if not (run_dir / 'latest.pt').is_file():
+            if (run_dir / 'latest.pt').is_symlink() or not (run_dir / 'latest.pt').is_file():
                 raise ExperimentError('no last verified checkpoint for resume')
         elif run_dir.exists() and any(run_dir.iterdir()):
             raise ExperimentError('experiment exists; use --resume with matching config')
@@ -119,8 +119,14 @@ class ExperimentRunner:
             trainer = DMCTrainer(config)
             if resume:
                 trainer.resume(run_dir / 'latest.pt')
-                if trainer.episodes_seen != old.get('episodes_seen'):
+                # A crashed run may have checkpointed after experiment.json was last
+                # updated. The verified checkpoint is the authoritative progress.
+                recorded = old.get('episodes_seen', old.get('previous_episodes', 0))
+                if (trainer.episodes_seen < recorded or
+                    (old.get('status') == 'finished' and trainer.episodes_seen != recorded)):
                     raise ExperimentError('checkpoint/status episode mismatch')
+                status['previous_episodes'] = trainer.episodes_seen
+                _atomic_json(state_file, status)
             result = trainer.train()
         except BaseException as exc:
             status.update(status='interrupted' if isinstance(exc, KeyboardInterrupt) else 'failed',

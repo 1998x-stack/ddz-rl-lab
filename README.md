@@ -1,3 +1,60 @@
+# DDZ RL Lab v11.0 — crash-safe local RL operations
+
+**Latest branch: `v11.0`.** A no-stakes, independent Dou Dizhu research simulator with a deterministic game core, partial-observation multi-agent ENV, role DMC baseline, historical opponents, model registry, local Web Arena and Loguru.
+
+v11 focuses on **explicit safe retries**, **per-job local resource settings**, **process timeouts**, and **interpretable Cross-Play matrix comparisons**. Previous v1–v10 behavior remains supported. It does not claim that the RL models have converged.
+
+## Install and test (Ubuntu / macOS)
+
+```bash
+git clone https://github.com/1998x-stack/ddz-rl-lab.git
+cd ddz-rl-lab
+git switch v11.0
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e '.[dev,rl,train,web,webtest]'
+pytest -q
+```
+
+## Submit, supervise, and resume a training job
+
+```bash
+# Use a unique experiment ID from the JSON training spec.
+ddz-jobs --runs-dir runs --jobs-dir runs/jobs submit \
+  --spec examples/v9_smoke.json --cpu-threads 2 --timeout-seconds 3600
+
+# Run explicit local supervisor. --parallel limits simultaneous jobs.
+OMP_NUM_THREADS=1 ddz-jobs --runs-dir runs --jobs-dir runs/jobs work --parallel 2 --once
+
+# Inspect job identifiers and states.
+ddz-jobs --runs-dir runs --jobs-dir runs/jobs list
+
+# On an interrupted/failed job *with a valid latest.pt*, manually retry.
+# Replace JOB_ID with the real ID from the list.
+ddz-jobs --runs-dir runs --jobs-dir runs/jobs retry JOB_ID
+```
+
+If training has no valid checkpoint, **retry is intentionally refused**. The old worker must be confirmed stopped; an orphan worker can block a supervisor restart until investigated. A retry computes remaining episodes from verified checkpoint metadata, so it cannot silently repeat already checkpointed training episodes. Work after the most recent checkpoint can be replayed. Runs use a private trusted storage directory; never accept untrusted `.pt` files.
+
+For CUDA specs (`"device": "cuda"`), explicitly submit `--gpu-id N`. The supervisor avoids scheduling two running jobs on the same configured GPU slot and sets `CUDA_VISIBLE_DEVICES=N` for the worker; it does **not** enforce GPU VRAM quotas or cross-host exclusivity. CPU thread settings limit numerical library thread counts, **not** OS-level CPU consumption. Resource fields are visible via `ddz-jobs status JOB_ID`. All scheduler state remains local SQLite; no background supervisor starts automatically.
+
+## Cross-Play analysis
+
+```bash
+ddz-crossplay-matrix --registry-dir runs/registry \
+  --landlords lord-a,lord-b --farmer-ups up-a,up-b --farmer-downs down-a \
+  --seed 2026 --deals 200 --draws 2000 \
+  --report runs/reports/matrix-v11.json
+```
+
+Replace example identifiers with registered model IDs. Reports show *unadjusted descriptive* paired bootstrap intervals, plus family-wise Bonferroni-adjusted intervals when draw resolution permits. A comparison needs at least 30 common completed initial deals to be flagged as adequate. **Cross-Play matrix alone must never promote a checkpoint**; keep using the frozen-opponent and human-reviewed v6 promotion process.
+
+Run the local three-model Arena with `ddz-arena --host 127.0.0.1 --port 8765 --allow-baseline` and open `http://127.0.0.1:8765/`. The baseline flag enables a non-learning random demo if no trained models exist. Internet-facing deployment needs more authentication and protection.
+
+Full technical notes: [docs/V11_RECOVERY_AND_EVALUATION.md](docs/V11_RECOVERY_AND_EVALUATION.md).
+
+---
+
 # DDZ RL Lab — v10.0: Durable Arena + Training Queue + Cross-Play Matrix
 
 **v10.0** adds crash-checked on-disk Arena session journals, paused session recovery,

@@ -21,7 +21,7 @@ def evaluate_matrix(models: Mapping[str, RoleBundle], *, landlords: Sequence[str
     if any(not pool or len(set(pool)) != len(pool) for pool in pools):
         raise ValueError('each role pool needs distinct nonempty candidates')
     combinations_count = math.prod(len(pool) for pool in pools)
-    if combinations_count > 64 or deals < 1 or deals > 1000 or deals * combinations_count > 64000:
+    if combinations_count > 16 or deals < 1 or deals > 1000 or deals * combinations_count > 64000:
         raise ValueError('cross-play matrix exceeds evaluation bounds')
     if not 100 <= draws <= 10000:
         raise ValueError('bootstrap draws must be in 100..10000')
@@ -48,6 +48,13 @@ def evaluate_matrix(models: Mapping[str, RoleBundle], *, landlords: Sequence[str
     # Paired bootstrap per entire initial deal, with the same seeds across triplets.
     rng = random.Random(seed + 5371)
     pairs = []
+    # Family-wise protection when inspecting many combinations. These are
+    # descriptive bootstrap intervals, NOT an automatic champion selector.
+    family_size = len(rows) * (len(rows) - 1) // 2
+    family_confidence = .95
+    corrected_tail = (1 - family_confidence) / (2 * max(1, family_size))
+    correction_resolved = draws * corrected_tail >= 2  # enough tail samples
+
     for a, b in combinations(rows, 2):
         ar = {x['deal_seed']: x['outcome'] for x in a['outcomes']}
         br = {x['deal_seed']: x['outcome'] for x in b['outcomes']}
@@ -55,19 +62,31 @@ def evaluate_matrix(models: Mapping[str, RoleBundle], *, landlords: Sequence[str
                       if ar[k] != 'truncated' and br[k] != 'truncated')
         if not keys:
             pairs.append({'first': a['id'], 'second': b['id'], 'delta': None,
-                          'ci': None, 'paired_deals': 0})
+                          'ci': None, 'familywise_ci': None, 'paired_deals': 0,
+                          'eligible_for_comparison': False})
             continue
         diffs = [int(ar[k] == 'LANDLORD') - int(br[k] == 'LANDLORD') for k in keys]
         n = len(diffs)
         values = sorted(sum(diffs[rng.randrange(n)] for _ in range(n)) / n
                         for _ in range(draws))
+        ci95 = [values[max(0, math.floor(.025 * draws))],
+                values[min(draws-1, math.ceil(.975 * draws)-1)]]
+        adjusted_ci = None
+        if correction_resolved:
+            adjusted_ci = [values[max(0, math.floor(corrected_tail * draws))],
+                           values[min(draws-1, math.ceil((1-corrected_tail) * draws)-1)]]
         pairs.append({'first': a['id'], 'second': b['id'],
-                      'delta': sum(diffs) / n,
-                      'ci': [values[max(0, math.floor(.025 * draws))],
-                             values[min(draws-1, math.ceil(.975 * draws)-1)]],
-                      'paired_deals': n})
+                      'delta': sum(diffs) / n, 'ci': ci95,
+                      'familywise_ci': adjusted_ci,
+                      'paired_deals': n, 'eligible_for_comparison': n >= 30})
     return {'schema': 'ddz-crossplay-matrix-v1', 'seed': seed, 'deals': deals,
             'rows': rows, 'paired_differences': pairs,
+            'multiplicity': {'method': 'bonferroni_percentile_bootstrap',
+                             'family_confidence': family_confidence,
+                             'number_of_pairs': family_size,
+                             'tail_resolution_sufficient': correction_resolved,
+                             'min_independent_deals_for_comparison': 30},
             'note': 'Pairwise CIs cluster on common initial deals. Results compare role-triplets, '
-                    'not isolated agent strength. Bidding remains the v9 random baseline; '
-                    'this matrix is not evidence for automatic model promotion.'}
+                    'not isolated agent strength. Unadjusted CIs must not be used for rank selection; '
+                    'some adjusted CIs are unavailable when bootstrap resolution is insufficient; '
+                    'bidding uses a random baseline and this matrix never automatically promotes models.'}
