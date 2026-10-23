@@ -1,3 +1,13 @@
+## v9.0 — Experiment management, role combination research, optional operator gate
+
+- Add `ddz_experiments` with JSON RunSpec validation, foreground execution, conservative resume and persisted status.
+- Add configurable evaluation-based early stopping with checkpointed patience counter.
+- Add three-role seeded Cross-Play CLI for registered, verified bundles.
+- Add read-only two-run comparison endpoint and Web Training tab comparison panel.
+- Add optional operator token login, expiring MAC cookie, HTTP/WS guard and trusted Host configuration.
+- Add regression tests and updated CI/wheel smoke for v9 components.
+- Keep historical features and no-stakes research scope unchanged. Not a claim of stronger RL performance.
+
 # Changelog
 
 ## v8.0 — read-only RL Research Console

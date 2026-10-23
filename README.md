@@ -1,3 +1,31 @@
+# DDZ RL Lab — v9.0: Experiment Orchestration + Cross-Play + Operator Login
+
+**v9.0** adds reproducible foreground experiment specs and resume safeguards, early stopping,
+read-only two-run comparison in the Web console, independent three-role Checkpoint Cross-Play,
+and optional signed-cookie authentication for a single operator. Earlier versions' rules,
+ENV, DMC training, tournament, registry, Web Arena and Loguru remain supported.
+
+## v9.0 quick start
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e '.[dev,rl,train,web,webtest]'
+pytest -q
+# JSON-driven foreground training and validated resume:
+ddz-experiment run --spec examples/v9_experiment.json --runs-dir runs
+ddz-experiment status demo-v9 --runs-dir runs
+# Existing registered models can be evaluated as three-role bundles:
+ddz-crossplay --registry-dir runs/registry --lineup trial:lord-id,up-id,down-id --deals 30
+# Existing loopback Web research console (token optional):
+ddz-arena --host 127.0.0.1 --port 8765 --allow-baseline
+```
+
+For complete usage, limitations, web security and sample commands, see
+[docs/V9_EXPERIMENTS_AND_SECURITY.md](docs/V9_EXPERIMENTS_AND_SECURITY.md).
+
+---
+
 # DDZ RL Lab — v8.0
 
 [![CI](https://github.com/1998x-stack/ddz-rl-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/1998x-stack/ddz-rl-lab/actions/workflows/ci.yml)

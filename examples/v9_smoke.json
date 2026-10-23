@@ -1,0 +1,1 @@
+{"schema":"ddz-experiment-v1","id":"ci-v9","training":{"episodes":2,"batch_episodes":1,"eval_every":2,"eval_games":1,"hidden":16,"actor_workers":1,"history_capacity":0}}

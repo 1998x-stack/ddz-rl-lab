@@ -89,3 +89,18 @@ jobs:
                             'ddz_web/static/app.js','ddz_web/static/lab.js'):
                   assert asset in z.namelist(), asset
           PYWHEEL
+
+      - name: v9 foreground experiments, role crossplay and operator login
+        run: |
+          OMP_NUM_THREADS=1 python -m pytest tests/test_v9_features.py -q
+          node --check src/ddz_web/static/auth.js
+          OMP_NUM_THREADS=1 ddz-experiment run --spec examples/v9_smoke.json --runs-dir /tmp/ddz-v9-runs
+          OMP_NUM_THREADS=1 ddz-experiment status ci-v9 --runs-dir /tmp/ddz-v9-runs
+          OMP_NUM_THREADS=1 ddz-crossplay --registry-dir /tmp/ddz-v6-registry --lineup smoke:baseline,baseline,baseline --deals 2 --seed 2026 --report /tmp/ddz-v9-crossplay.json
+          python - <<'PYV9'
+          from pathlib import Path
+          import json
+          cp=json.loads(Path('/tmp/ddz-v9-crossplay.json').read_text())
+          assert cp['schema']=='ddz-crossplay-v1'
+          assert cp['lineups']['smoke']['deals']==2
+          PYV9

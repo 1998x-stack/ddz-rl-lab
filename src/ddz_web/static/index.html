@@ -1,8 +1,9 @@
 <!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#09191b"><title>DDZ RL Lab · Research Console v8</title><link rel="stylesheet" href="/static/style.css"></head>
+<meta name="theme-color" content="#09191b"><title>DDZ RL Lab · Research Console v9</title><link rel="stylesheet" href="/static/style.css"></head>
 <body><main class="shell">
 <header class="top"><div><p class="overline">DDZ RL LAB · EXPERIMENT CONSOLE</p><h1>斗地主强化学习实验室</h1><p class="subtitle">公开状态实时展示 · 已验证 Checkpoint · 无下注与充值</p></div><span class="pill" id="connection">连接中</span></header>
+<section id="operator-login" class="panel" hidden><h2>操作员登录</h2><p class="subtitle">该部署需要操作员令牌。请在受信任的 HTTPS 或本机连接中使用。</p><form><input type="password" placeholder="输入操作员令牌" autocomplete="off" required><button type="submit">登录</button></form><p role="status"></p></section>
 <nav class="lab-tabs" aria-label="实验控制台页面">
 <button type="button" data-tab="arena" class="selected">Arena 对局</button>
 <button type="button" data-tab="runs">训练曲线</button>
@@ -20,11 +21,11 @@
 </div>
 <section id="tab-runs" class="lab-view" hidden><div class="panel">
 <div class="lab-heading"><div><h2>TRAINING METRICS</h2><p class="subtitle">持久化 JSONL · 只读 · 非实时训练控制</p></div><div class="lab-actions"><select id="run-select" aria-label="选择训练任务"></select><button type="button" id="run-refresh">刷新</button></div></div>
-<div id="run-summary" class="kpis"></div><div class="chart-grid"><div><h3>Balanced Score</h3><svg id="score-chart" role="img" aria-label="评测平衡得分折线图" viewBox="0 0 680 210"></svg></div><div><h3>Episodes / Second</h3><svg id="throughput-chart" role="img" aria-label="训练吞吐折线图" viewBox="0 0 680 210"></svg></div></div><p id="run-hint" class="subtitle"></p></div></section>
+<div id="run-summary" class="kpis"></div><div class="chart-grid"><div><h3>Balanced Score</h3><svg id="score-chart" role="img" aria-label="评测平衡得分折线图" viewBox="0 0 680 210"></svg></div><div><h3>Episodes / Second</h3><svg id="throughput-chart" role="img" aria-label="训练吞吐折线图" viewBox="0 0 680 210"></svg></div></div><p id="run-hint" class="subtitle"></p><div class="data-row"><h3>实验比较</h3><select id="compare-run-select" aria-label="选择用于比较的另一训练任务"></select><button type="button" id="compare-run-btn">比较两个实验</button><div id="compare-run-result" class="data-list"></div><small class="muted">仅为描述性比较，不能替代多种子配对 Tournament。</small></div></div></section>
 <section id="tab-models" class="lab-view" hidden><div class="panel"><div class="lab-heading"><h2>CHECKPOINT REGISTRY</h2><button type="button" id="models-refresh">刷新</button></div><p class="subtitle">仅展示已注册推理模型，模型激活和晋升仍由 CLI 管理。</p><div id="registry-list" class="data-list"></div></div></section>
 <section id="tab-reports" class="lab-view" hidden><div class="panel"><div class="lab-heading"><h2>TOURNAMENT REPORTS</h2><div class="lab-actions"><select id="report-select" aria-label="选择 Tournament 报告"></select><button type="button" id="reports-refresh">刷新</button></div></div><p class="subtitle">展示按牌局分组的置信区间及晋升证据，不替代人工审批。</p><div id="report-summary" class="kpis"></div><div id="report-results" class="data-list"></div></div></section>
 <section id="tab-replays" class="lab-view" hidden><div class="panel"><div class="lab-heading"><h2>VERIFIED REPLAY</h2><div class="lab-actions"><select id="replay-select" aria-label="选择已结束回放"></select><button type="button" id="replays-refresh">刷新</button></div></div><p class="subtitle">只展示完成牌局经状态哈希验证后的公开事件及剩余牌数，不包含任何隐藏手牌。</p>
 <div id="replay-information" class="kpis"></div><label class="seek-label">逐步查看 <output id="replay-step">—</output><input id="replay-seek" type="range" min="0" max="0" value="0" disabled></label><div id="replay-details" class="data-list"></div></div></section>
 <section id="tab-logs" class="lab-view" hidden><div class="panel"><div class="lab-heading"><h2>LOGURU DIAGNOSTICS</h2><button type="button" id="logs-refresh">读取最近日志</button></div><p class="subtitle">只读最后 120 条摘要，隐藏异常堆栈、内部手牌与私有追踪数据。</p><ol id="log-list" class="logs-list"></ol></div></section>
-<footer>本项目为无资金机制的斗地主 RL 研究模拟。训练和竞技指标不构成真实对局能力保证。Web 控制台默认只供本机操作，不具备公网认证。</footer></main>
-<script src="/static/app.js" defer></script><script src="/static/lab.js" defer></script></body></html>
+<footer>本项目为无资金机制的斗地主 RL 研究模拟。训练和竞技指标不构成真实对局能力保证。Web 控制台默认只供本机操作，如启用操作员令牌也应通过可信 HTTPS 代理部署，且不等于多用户权限管理。</footer></main>
+<script src="/static/auth.js" defer></script><script src="/static/app.js" defer></script><script src="/static/lab.js" defer></script></body></html>

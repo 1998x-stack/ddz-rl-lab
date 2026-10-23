@@ -13,6 +13,7 @@ from loguru import logger
 
 from .arena import ArenaManager
 from .lab import LabStore, LabError
+from .auth import OperatorAuth, COOKIE
 
 STATIC_DIR = Path(__file__).resolve().parent / 'static'
 
@@ -44,13 +45,15 @@ def create_app(registry_dir: str | Path = 'runs/registry',
                allowed_hosts: list[str] | None = None,
                runs_dir: str | Path = 'runs',
                reports_dir: str | Path = 'runs/reports',
-               log_dir: str | Path = 'logs') -> FastAPI:
+               log_dir: str | Path = 'logs',
+               operator_token: str | None = None,
+               secure_auth_cookie: bool = False) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         yield
         await app.state.manager.close()
 
-    app = FastAPI(lifespan=lifespan, title='DDZ RL Lab Arena', version='0.8.0',
+    app = FastAPI(lifespan=lifespan, title='DDZ RL Lab Arena', version='0.9.0',
                   description='Local no-stakes, registered-checkpoint spectator arena')
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts or [
         'localhost', '127.0.0.1', 'testserver'])
@@ -58,9 +61,14 @@ def create_app(registry_dir: str | Path = 'runs/registry',
                                      allow_baseline=allow_baseline, max_sessions=max_sessions)
     app.state.lab = LabStore(Path(runs_dir), Path(reports_dir), Path(replay_dir), Path(log_dir))
     origins = trusted_origins or set()
+    auth = OperatorAuth(operator_token, secure_cookie=secure_auth_cookie)
 
     @app.middleware('http')
     async def same_origin_write(request: Request, call_next):
+        if request.url.path.startswith('/api/') and request.url.path not in {
+            '/api/health', '/api/auth/status', '/api/auth/login'}:
+            if not auth.valid_cookie(request.cookies.get(COOKIE)):
+                return JSONResponse(status_code=401, content={'detail':'operator login required'})
         if request.method in {'POST', 'PUT', 'PATCH', 'DELETE'}:
             if not _origin_allowed(request.headers.get('origin'),
                                    request.headers.get('host', ''), origins):
@@ -79,6 +87,10 @@ def create_app(registry_dir: str | Path = 'runs/registry',
     @app.get('/static/style.css')
     def stylesheet():
         return FileResponse(STATIC_DIR / 'style.css', media_type='text/css')
+
+    @app.get('/static/auth.js')
+    def auth_js():
+        return FileResponse(STATIC_DIR / 'auth.js', media_type='text/javascript')
 
     @app.get('/static/lab.js')
     def lab_javascript():
@@ -103,6 +115,13 @@ def create_app(registry_dir: str | Path = 'runs/registry',
             return app.state.lab.metrics(run_id, limit=limit)
         except (LabError, FileNotFoundError) as exc:
             raise HTTPException(404, detail='invalid run or missing run') from exc
+
+    @app.get('/api/lab/compare')
+    def compare_runs(left: str, right: str):
+        try:
+            return app.state.lab.compare_runs(left, right)
+        except (LabError, FileNotFoundError) as exc:
+            raise HTTPException(404, detail='invalid run comparison') from exc
 
     @app.get('/api/lab/reports')
     def reports():
@@ -132,6 +151,29 @@ def create_app(registry_dir: str | Path = 'runs/registry',
         if not 1 <= limit <= 200:
             raise HTTPException(422, detail='limit out of range')
         return app.state.lab.logs(limit=limit)
+
+    @app.get('/api/auth/status')
+    def auth_status(request: Request):
+        return {'required': auth.enabled, 'authenticated': auth.valid_cookie(request.cookies.get(COOKIE))}
+
+    @app.post('/api/auth/login')
+    def auth_login(request: Request):
+        if not auth.enabled:
+            raise HTTPException(400, detail='operator login is not enabled')
+        if not auth.login(request.headers.get('x-operator-token')):
+            logger.bind(component='auth').warning('operator_login_rejected')
+            raise HTTPException(401, detail='invalid operator token')
+        response = JSONResponse(content={'authenticated': True})
+        response.set_cookie(COOKIE, auth.issue_cookie(), httponly=True, secure=auth.secure_cookie,
+                            samesite='strict', max_age=3600 * 8, path='/')
+        logger.bind(component='auth').info('operator_login_success')
+        return response
+
+    @app.post('/api/auth/logout')
+    def auth_logout():
+        response = JSONResponse(content={'authenticated': False})
+        response.delete_cookie(COOKIE, path='/')
+        return response
 
     @app.get('/api/health')
     def health():
@@ -179,7 +221,8 @@ def create_app(registry_dir: str | Path = 'runs/registry',
 
     @app.websocket('/api/games/{game_id}/events')
     async def events(ws: WebSocket, game_id: str):
-        if not _origin_allowed(ws.headers.get('origin'), ws.headers.get('host', ''), origins):
+        if not (auth.valid_cookie(ws.cookies.get(COOKIE)) and
+                _origin_allowed(ws.headers.get('origin'), ws.headers.get('host', ''), origins)):
             await ws.close(code=1008)
             return
         try:

@@ -1,0 +1,15 @@
+{
+  "schema": "ddz-experiment-v1",
+  "id": "demo-v9",
+  "training": {
+    "episodes": 20,
+    "seed": 2026,
+    "hidden": 32,
+    "batch_episodes": 2,
+    "actor_workers": 2,
+    "eval_every": 5,
+    "eval_games": 4,
+    "early_stop_patience_evals": 3,
+    "min_score_improvement": 0.01
+  }
+}

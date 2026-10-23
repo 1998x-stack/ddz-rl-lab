@@ -44,6 +44,7 @@ let overview=null;
 async function refreshOverview() {
   overview=await labApi('/api/lab/overview');
   updateSelect(lab('run-select'),overview.runs.map(r=>r.run_id),'没有训练任务',lab('run-select').value);
+  updateSelect(lab('compare-run-select'),overview.runs.map(r=>r.run_id),'没有比较对象',lab('compare-run-select').value);
   updateSelect(lab('report-select'),overview.reports.map(r=>r.report_id),'没有 Tournament 报告',lab('report-select').value);
   updateSelect(lab('replay-select'),overview.replays.map(r=>r.replay_id),'没有已结束的对局',lab('replay-select').value);
   const body=lab('registry-list');body.replaceChildren();
@@ -115,3 +116,18 @@ lab('replay-select').onchange=()=>safely(loadReplay);lab('replay-seek').oninput=
 lab('run-refresh').onclick=()=>safely(loaders.runs);lab('models-refresh').onclick=()=>safely(loaders.models);
 lab('reports-refresh').onclick=()=>safely(loaders.reports);lab('replays-refresh').onclick=()=>safely(loaders.replays);
 lab('logs-refresh').onclick=()=>safely(loadLogs);
+
+async function compareRuns() {
+  const left=lab('run-select').value,right=lab('compare-run-select').value;
+  const area=lab('compare-run-result');area.replaceChildren();
+  if (!left||!right||left===right) {empty(area,'请选择两个不同的实验');return;}
+  const data=await labApi('/api/lab/compare?left='+encodeURIComponent(left)+'&right='+encodeURIComponent(right));
+  const a=data.results[left],b=data.results[right];
+  const row=addText(area,'div','','data-row');
+  addText(row,'strong',left+' vs '+right);
+  addText(row,'small','Balanced Score: '+fmt(a.latest.balanced_score)+' → '+fmt(b.latest.balanced_score));
+  addText(row,'small','Δ (right - left): '+fmt(data.balanced_score_delta));
+  addText(row,'small','Episodes: '+String(a.latest.episodes_seen??'—')+' → '+String(b.latest.episodes_seen??'—'));
+  addText(row,'small','Status: '+String(a.run_status??'—')+' / '+String(b.run_status??'—'));
+}
+lab('compare-run-btn').onclick=()=>safely(compareRuns);

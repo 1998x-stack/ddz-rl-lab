@@ -141,6 +141,35 @@ class LabStore:
                 output[metric_name] = {'records': [], 'truncated': False, 'invalid_lines': 0}
         return output
 
+    def compare_runs(self, left: str, right: str) -> dict[str, Any]:
+        """Descriptive comparison only. Different training seeds are not paired trials."""
+        if left == right:
+            raise LabError('select two distinct runs')
+        result = {}
+        for name in (left, right):
+            metrics = self.metrics(name, limit=500)
+            snapshots = metrics['evaluations']['records']
+            throughput = metrics['throughput']['records']
+            result[name] = {'evaluations': len(snapshots),
+                            'latest': (snapshots[-1] if snapshots else {}),
+                            'throughput': (throughput[-1] if throughput else {}),
+                            'truncated': metrics['evaluations']['truncated']}
+            folder = self.runs_dir / name
+            try:
+                status = _json_file(_safe_file(folder, 'experiment.json'))
+                if status.get('schema') == 'ddz-experiment-state-v1':
+                    result[name]['run_status'] = status.get('status')
+            except (FileNotFoundError, OSError, ValueError):
+                pass
+        def val(name, key):
+            x = result[name]['latest'].get(key)
+            return float(x) if type(x) in (float, int) else None
+        a, b = val(left, 'balanced_score'), val(right, 'balanced_score')
+        return {'schema': 'ddz-run-comparison-v1', 'left': left, 'right': right,
+                'results': result, 'balanced_score_delta': (b - a if a is not None and b is not None else None),
+                'interpretation': 'Descriptive only; unequal seeds/checkpoints are not paired trials. '
+                                  'Use deal-clustered Tournament for significance.'}
+
     def reports(self) -> list[dict[str, Any]]:
         result = []
         for name in _list_names(self.reports_dir, '.json'):

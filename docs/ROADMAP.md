@@ -1,3 +1,14 @@
+## v9.0 implemented
+
+Foreground experiment runner (JSON specs and checkpoints), configurable Early Stopping, run comparison,
+seeded three-role Cross-Play, optional single-operator authenticated Web (including WebSocket).
+See [V9_EXPERIMENTS_AND_SECURITY.md](V9_EXPERIMENTS_AND_SECURITY.md).
+
+## v10.0 candidates (not implemented)
+
+Persist and securely recover unfinished Arena sessions; bounded background job scheduler;
+checkpoint lineup heatmaps and stronger evaluation robustness; experiment lineage.
+
 # 分阶段 Code Category / Package Roadmap
 
 目标是保证规则内核长期稳定，后续训练和可视化系统单独演进。目录代表计划中的模块名，尚未存在的目录不视为已实现。

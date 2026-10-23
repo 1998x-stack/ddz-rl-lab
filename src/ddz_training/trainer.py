@@ -39,6 +39,8 @@ class TrainConfig:
     updates_per_batch: int = 1
     history_capacity: int = 6
     history_probability: float = .35
+    early_stop_patience_evals: int = 0
+    min_score_improvement: float = 0.0
 
     def __post_init__(self) -> None:
         positives = ("episodes", "batch_episodes", "eval_games", "eval_every", "hidden",
@@ -48,6 +50,9 @@ class TrainConfig:
             raise ValueError("positive training counts required")
         if self.lr <= 0 or not 0 <= self.epsilon <= 1 or self.history_capacity < 0:
             raise ValueError("invalid learning or history configuration")
+        if (type(self.early_stop_patience_evals) is not int or
+                self.early_stop_patience_evals < 0 or self.min_score_improvement < 0):
+            raise ValueError('invalid early stopping configuration')
         if not 0 <= self.history_probability <= 1:
             raise ValueError("history_probability must be in [0,1]")
 
@@ -74,6 +79,8 @@ class DMCTrainer:
         self.episodes_seen = 0
         self.updates = 0
         self.best_score = float("-inf")
+        self.evals_without_improvement = 0
+        self.stopped_early = False
         self.latest_metrics: dict = {}
         self.output = Path(config.output)
         self.output.mkdir(parents=True, exist_ok=True)
@@ -136,12 +143,15 @@ class DMCTrainer:
         saved = payload["config"]
         for field in ("seed", "hidden", "lr", "epsilon", "batch_episodes", "max_steps",
                       "actor_workers", "replay_capacity", "replay_sample_size",
-                      "updates_per_batch", "history_capacity", "history_probability"):
+                      "updates_per_batch", "history_capacity", "history_probability",
+                      "early_stop_patience_evals", "min_score_improvement"):
             if saved.get(field, getattr(self.config, field)) != getattr(self.config, field):
                 raise ValueError(f"cannot resume with changed training config: {field}")
         self.episodes_seen = int(payload["episodes_seen"])
         self.updates = int(payload["updates"])
         self.best_score = float(payload["metrics"].get("best_score", float("-inf")))
+        self.evals_without_improvement = int(payload.get('trainer_state', {}).get('evals_without_improvement', 0))
+        self.stopped_early = False
         self.latest_metrics = dict(payload["metrics"])
         self.rng.setstate(payload["python_rng"])
         torch.set_rng_state(payload["torch_rng"])
@@ -178,11 +188,14 @@ class DMCTrainer:
             if self.episodes_seen % self.config.eval_every == 0:
                 self._evaluate_and_save()
                 evaluated_at = self.episodes_seen
-        if self.episodes_seen % self.config.batch_episodes:
+                if self.stopped_early:
+                    logger.bind(component='learner', episodes=self.episodes_seen).info('early_stopping_triggered')
+                    break
+        if not self.stopped_early and self.episodes_seen % self.config.batch_episodes:
             self._learn_from_replay()
             # The last evaluation happened before this final partial update.
             evaluated_at = None
-        if evaluated_at != self.episodes_seen:
+        if evaluated_at != self.episodes_seen and not self.stopped_early:
             self._evaluate_and_save()
         return self.latest_metrics
 
@@ -198,18 +211,26 @@ class DMCTrainer:
         result = evaluate_bundle(self.bundle, self.config.seed + 200000,
                                  self.config.eval_games, self.config.max_steps)
         score = float(result["balanced_score"])
-        improved = score > self.best_score
+        improved = score > self.best_score + self.config.min_score_improvement
         if improved:
             self.best_score = score
+            self.evals_without_improvement = 0
+        else:
+            self.evals_without_improvement += 1
+        self.stopped_early = (self.config.early_stop_patience_evals > 0 and
+                              self.evals_without_improvement >= self.config.early_stop_patience_evals)
         self.latest_metrics = {**result, "best_score": self.best_score,
                                "episodes_seen": self.episodes_seen, "updates": self.updates,
                                "replay_size": len(self.replay),
-                               "throughput": self.meter.snapshot()}
+                               "throughput": self.meter.snapshot(),
+                               "evals_without_improvement": self.evals_without_improvement,
+                               "stopped_early": self.stopped_early}
         params = dict(asdict(self.config))
         save_checkpoint(self.output / "latest.pt", self.bundle, self.optimizers,
                         episodes_seen=self.episodes_seen, updates=self.updates,
                         rng=self.rng, metrics=self.latest_metrics, config=params,
-                        extra_state={"replay": self.replay.state_dict()})
+                        extra_state={"replay": self.replay.state_dict(),
+                                     "evals_without_improvement": self.evals_without_improvement})
         if improved:
             save_checkpoint(self.output / "best.weights.pt", self.bundle, {},
                             episodes_seen=self.episodes_seen, updates=self.updates,
