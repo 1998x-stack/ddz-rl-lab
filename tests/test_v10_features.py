@@ -101,6 +101,7 @@ def test_queue_worker_process_and_resume_lineage(tmp_path):
 
 
 def test_interrupted_running_jobs_not_requeued(tmp_path):
+    pytest.importorskip("torch")
     from ddz_experiments.jobs import JobQueue
     q=JobQueue(tmp_path/'jobs',tmp_path/'runs')
     job=q.submit(experiment_spec(tmp_path/'a.json'))
