@@ -14,12 +14,16 @@ def main() -> None:
     parser.add_argument('--registry-dir', default='runs/registry')
     parser.add_argument('--replay-dir', default='runs/arena-replays')
     parser.add_argument('--log-dir', default='logs')
+    parser.add_argument('--runs-dir', default='runs', help='read-only training artifacts root')
+    parser.add_argument('--reports-dir', default='runs/reports', help='read-only tournament reports root')
     parser.add_argument('--allow-baseline', action='store_true',
                         help='enable NON-learning random policies for development only')
     args = parser.parse_args()
     configure_logging(args.log_dir)
     uvicorn.run(create_app(args.registry_dir, args.replay_dir,
-                           allow_baseline=args.allow_baseline), host=args.host, port=args.port)
+                           allow_baseline=args.allow_baseline,
+                           runs_dir=args.runs_dir, reports_dir=args.reports_dir,
+                           log_dir=args.log_dir), host=args.host, port=args.port)
 
 
 if __name__ == '__main__':

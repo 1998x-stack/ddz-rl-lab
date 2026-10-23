@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from loguru import logger
 
 from .arena import ArenaManager
+from .lab import LabStore, LabError
 
 STATIC_DIR = Path(__file__).resolve().parent / 'static'
 
@@ -40,18 +41,22 @@ def create_app(registry_dir: str | Path = 'runs/registry',
                *, allow_baseline: bool = False,
                trusted_origins: set[str] | None = None,
                max_sessions: int = 12,
-               allowed_hosts: list[str] | None = None) -> FastAPI:
+               allowed_hosts: list[str] | None = None,
+               runs_dir: str | Path = 'runs',
+               reports_dir: str | Path = 'runs/reports',
+               log_dir: str | Path = 'logs') -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         yield
         await app.state.manager.close()
 
-    app = FastAPI(lifespan=lifespan, title='DDZ RL Lab Arena', version='0.7.0',
+    app = FastAPI(lifespan=lifespan, title='DDZ RL Lab Arena', version='0.8.0',
                   description='Local no-stakes, registered-checkpoint spectator arena')
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts or [
         'localhost', '127.0.0.1', 'testserver'])
     app.state.manager = ArenaManager(Path(registry_dir), Path(replay_dir),
                                      allow_baseline=allow_baseline, max_sessions=max_sessions)
+    app.state.lab = LabStore(Path(runs_dir), Path(reports_dir), Path(replay_dir), Path(log_dir))
     origins = trusted_origins or set()
 
     @app.middleware('http')
@@ -74,6 +79,59 @@ def create_app(registry_dir: str | Path = 'runs/registry',
     @app.get('/static/style.css')
     def stylesheet():
         return FileResponse(STATIC_DIR / 'style.css', media_type='text/css')
+
+    @app.get('/static/lab.js')
+    def lab_javascript():
+        return FileResponse(STATIC_DIR / 'lab.js', media_type='text/javascript')
+
+    @app.get('/api/lab/overview')
+    def overview():
+        models = app.state.manager.available_models()
+        return {'schema': 'ddz-lab-v1', 'runs': app.state.lab.runs(),
+                'reports': app.state.lab.reports(), 'replays': app.state.lab.replays(),
+                'models': models}
+
+    @app.get('/api/lab/runs')
+    def runs():
+        return {'runs': app.state.lab.runs()}
+
+    @app.get('/api/lab/runs/{run_id}/metrics')
+    def metrics(run_id: str, limit: int = 300):
+        if not 1 <= limit <= 500:
+            raise HTTPException(422, detail='limit out of range')
+        try:
+            return app.state.lab.metrics(run_id, limit=limit)
+        except (LabError, FileNotFoundError) as exc:
+            raise HTTPException(404, detail='invalid run or missing run') from exc
+
+    @app.get('/api/lab/reports')
+    def reports():
+        return {'reports': app.state.lab.reports()}
+
+    @app.get('/api/lab/reports/{report_id}')
+    def report(report_id: str):
+        try:
+            return app.state.lab.report(report_id)
+        except (LabError, FileNotFoundError, ValueError) as exc:
+            raise HTTPException(404, detail='report unavailable') from exc
+
+    @app.get('/api/lab/replays')
+    def replays():
+        return {'replays': app.state.lab.replays()}
+
+    @app.get('/api/lab/replays/{replay_id}')
+    def replay_frames(replay_id: str):
+        try:
+            return app.state.lab.replay(replay_id)
+        except (LabError, FileNotFoundError, ValueError, AssertionError, KeyError) as exc:
+            logger.bind(component='replay', replay_id=replay_id).warning('replay_validation_failed')
+            raise HTTPException(404, detail='completed replay not available or invalid') from exc
+
+    @app.get('/api/lab/logs')
+    def logs(limit: int = 120):
+        if not 1 <= limit <= 200:
+            raise HTTPException(422, detail='limit out of range')
+        return app.state.lab.logs(limit=limit)
 
     @app.get('/api/health')
     def health():

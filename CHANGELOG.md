@@ -1,5 +1,16 @@
 # Changelog
 
+## v8.0 — read-only RL Research Console
+
+- Six-tab web UI combining Arena, training metrics, model registry, Tournament results, completed replays, and Loguru summaries.
+- Bounded read-only REST API over explicitly configured local directories; identifier validation and symlink rejection.
+- Integrity-verified historical replay reconstruction: no unrevealed hands, initial seed or raw private state emitted.
+- Training/evaluation JSONL score and throughput charts, tournament ranking and paired confidence intervals.
+- New CLI flags (`--runs-dir`, `--reports-dir`) and runtime documentation; v7 Arena controls remain compatible.
+- Comprehensive regression and security tests, CI integration and frontend wheel static resources.
+- No internet authentication, training orchestration, automated promotion, financial wagering, or claimed model convergence.
+
+
 ## v7.0 — three-model Web Arena
 
 - FastAPI local spectator HTTP API + WebSocket current-state streaming.

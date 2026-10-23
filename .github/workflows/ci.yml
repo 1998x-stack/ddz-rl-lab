@@ -73,3 +73,19 @@ jobs:
               game_id = game.json()['game_id']
               assert c.post(f'/api/games/{game_id}/control', json={'action':'step'}).status_code == 200
           PYWEB
+
+      - name: v8 dashboard read-only routes, integrity and wheel smoke
+        run: |
+          OMP_NUM_THREADS=1 python -m pytest tests/test_v8_lab.py -q
+          node --check src/ddz_web/static/app.js
+          node --check src/ddz_web/static/lab.js
+          python -m pip wheel . --no-deps -w /tmp/ddz-wheel
+          python - <<'PYWHEEL'
+          from pathlib import Path
+          import zipfile
+          w=next(Path('/tmp/ddz-wheel').glob('ddz_rl_lab-*.whl'))
+          with zipfile.ZipFile(w) as z:
+              for asset in ('ddz_web/static/index.html','ddz_web/static/style.css',
+                            'ddz_web/static/app.js','ddz_web/static/lab.js'):
+                  assert asset in z.namelist(), asset
+          PYWHEEL

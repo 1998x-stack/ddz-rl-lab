@@ -1,4 +1,4 @@
-# DDZ RL Lab — v7.0
+# DDZ RL Lab — v8.0
 
 [![CI](https://github.com/1998x-stack/ddz-rl-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/1998x-stack/ddz-rl-lab/actions/workflows/ci.yml)
 
@@ -9,6 +9,7 @@
 - `v3.0`: runnable multi-agent environment, candidate encodings, terminal team rewards, PettingZoo AEC, and test baselines.
 - `v4.0`: runnable PyTorch role-aware candidate-action MLP, synchronous Deep Monte Carlo self-play, Loguru metrics, checkpoint save/resume, deterministic external-random-opponent evaluation, and CI smoke tests.
 - `v5.0`: local multi-process actor sampling, bounded replay with restorable snapshots, rolling frozen historical opponents, throughput JSONL metrics, and two-sided tournament against historical checkpoints.**
+- **`v8.0`: six-tab local research console with read-only training curves, registry, tournament comparison, public replay timelines, and Loguru summaries.**
 - **`v7.0`: local FastAPI + WebSocket three-agent spectator Arena, pinned SHA-validated registered checkpoint inference, deterministic replay downloads, interactive playback controls, Loguru and security tests.**
 - **`v6.0`: multi-seed paired tournaments with deal-cluster bootstrap, immutable inference model registry, and evidence-gated manual champion promotion.**
 - **Not included:** multi-host distributed actor–learner cluster, production-ready strong models, PPO, internet-facing authentication, multi-node Arena, money, wagers, payments, or Tencent integration.
@@ -26,7 +27,7 @@
 ```bash
 git clone https://github.com/1998x-stack/ddz-rl-lab.git
 cd ddz-rl-lab
-git switch v7.0
+git switch v8.0
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -58,7 +59,7 @@ ddz-demo --games 3 --seed 2026
 | Learner / Checkpoint | `ddz_training` | Spawn actor pool, bounded replay, MC learner, frozen pool, SHA-256 model bundles, resume |
 | Evaluation | `ddz_eval` | Frozen random-opponent trials, seeded cross-checkpoint bilateral tournament, paired deal-cluster statistics and selection |
 | Model registry | `ddz_registry` | SHA-verified immutable inference models and explicit champion pointer |
-| Web Arena | `ddz_web` | FastAPI/WebSocket spectator session scheduler, registered-policy routing, playback, and replay |
+| Web Arena + Lab | `ddz_web` | FastAPI/WebSocket Arena plus v8 read-only research dashboard, bounded artifact views and verified public replay |
 | Diagnostics | `ddz_core.logging_config` | Loguru rotating logs |
 | Tests | `tests/` | Unit, random rollout, replay and PettingZoo API tests |
 
@@ -120,6 +121,22 @@ The random baseline is NOT an RL model. Models remain pinned for the full game; 
 **Security and operation:** the CLI binds to loopback only; the API rejects browser cross-origin POST/WebSockets and untrusted Hosts, caps session counts, and never accepts uploaded `.pt` files. This is **not a public multiuser product** and has no login or authorization. Do not expose port 8765 to the internet or bind 0.0.0.0 without adding authentication and a trusted reverse proxy. Completed games persist in `runs/arena-replays/`; session metadata is memory-resident and resets on server restart. Loguru logs can be configured using `--log-dir`.
 
 [Full Arena architecture, REST/WS contracts and safety boundaries](docs/V7_WEB_ARENA.md).
+
+## v8.0 Research Console — Experiments, Models, Tournament, Replay, Loguru
+
+The same local server now includes **six selectable tabs**: `Arena`, `Training`, `Checkpoint Registry`, `Tournament`, `Historical Replay`, and `Loguru`. These use the existing JSONL metrics and versioned Registry rather than inventing sample results. The run viewer shows balanced score and training throughput, the tournament viewer displays deal-clustered confidence intervals, and the replay viewer reconstructs a sequence of public game states after digest verification.
+
+```bash
+python -m pip install -e '.[dev,rl,train,web,webtest]'
+# Point the read-only dashboard at your actual experiment folders:
+ddz-arena --host 127.0.0.1 --port 8765 --allow-baseline \
+  --runs-dir runs --reports-dir runs/reports \
+  --registry-dir runs/registry --replay-dir runs/arena-replays --log-dir logs
+```
+
+To populate **Training**, run `ddz-train train --output runs/experiment-001 ...`; to populate **Tournament**, save a v6 report using `ddz-league evaluate ... --report runs/reports/compare.json`. **The dashboard cannot start training or approve promotions**. A random baseline is never presented as RL. No real wagers, payments or third-party client automation are included.
+
+Safety: lab artifact endpoints are **unauthenticated and local-operator-only**, despite bounded reads and traversal protection. Keep the listener on `127.0.0.1`; do **not** publish port 8765. The historical replay viewer omits seed, hidden hands, and raw game state; existing v7 replay downloads still expose completed trace data to the local operator. For exact schemas, limits, failure handling and tests, see [v8 Research Console documentation](docs/V8_RESEARCH_CONSOLE.md).
 
 ## Using the compact environment
 
