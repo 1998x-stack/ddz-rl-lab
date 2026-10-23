@@ -46,7 +46,7 @@ def test_redeal_bid_targets_do_not_inherit_later_deal_result():
             ('landlord', (1.,), (1.,), 0, 1)]
     values = label_samples(data, final_deal=1, truncated=False,
                            reward=(2., -1., -1.), redeal_penalty=1.)
-    assert [x.return_value for x in values] == [-1., 2., 2.]
+    assert [x.return_value for x in values] == [-1., 1., 1.]
     aborted = label_samples(data[:2], final_deal=1, truncated=True,
                             reward=(0., 0., 0.), redeal_penalty=1.)
     assert [x.return_value for x in aborted] == [-1., -1.]

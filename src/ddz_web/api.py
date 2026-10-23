@@ -15,6 +15,7 @@ from .arena import ArenaManager
 from .lab import LabStore, LabError
 from .auth import OperatorAuth, COOKIE
 from .debug_hands import hand_debug_payload
+from ddz_quality.feedback import submit_feedback, FeedbackError
 
 STATIC_DIR = Path(__file__).resolve().parent / 'static'
 NO_CACHE = {'Cache-Control': 'no-store'}
@@ -35,6 +36,12 @@ class Control(BaseModel):
 class HumanAction(BaseModel):
     index: int
     expected_step: int
+
+
+class HumanFeedback(BaseModel):
+    step_index: int = Field(ge=0, le=1200)
+    alternative_index: int | None = Field(None, ge=0)
+    reason: Literal['split','teamwork','endgame','auction','legality','other']
 
 
 def _origin_allowed(origin: str | None, host: str, trusted: set[str]) -> bool:
@@ -267,6 +274,18 @@ def create_app(registry_dir: str | Path = 'runs/registry',
                                 headers={'Cache-Control': 'private, no-store'})
         except ValueError as exc:
             raise HTTPException(404, detail=str(exc)) from exc
+
+    @app.post('/api/games/{game_id}/feedback')
+    def submit_step_feedback(game_id: str, data: HumanFeedback):
+        # Middleware checks operator cookie and Origin; the submission returns
+        # an opaque ID only, never the historic private observation.
+        try:
+            get_game(game_id)
+            result = submit_feedback(Path(replay_dir), game_id, data.step_index,
+                                     data.alternative_index, data.reason)
+            return {'id': result['id'], 'review_status': 'unreviewed'}
+        except (FeedbackError, ValueError) as exc:
+            raise HTTPException(422, detail=str(exc)) from exc
 
     @app.post('/api/games/{game_id}/action')
     async def human_action(game_id: str, data: HumanAction):
