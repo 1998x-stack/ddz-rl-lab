@@ -1,3 +1,48 @@
+# DDZ RL Lab — v10.0: Durable Arena + Training Queue + Cross-Play Matrix
+
+**v10.0** adds crash-checked on-disk Arena session journals, paused session recovery,
+a bounded SQLite-backed local training job supervisor with ancestry metadata,
+a reproducible multi-role Checkpoint matrix, and two read-only dashboard tabs.
+The authoritative game rules, hidden-information boundary and manual model
+promotion remain unchanged. **No claim of fully converged RL skill.**
+
+## v10.0 quick start
+
+```bash
+git clone https://github.com/1998x-stack/ddz-rl-lab.git
+cd ddz-rl-lab
+git switch v10.0
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e '.[dev,rl,train,web,webtest]'
+pytest -q
+
+# Submit an existing bounded v9 JSON training spec to the persistent job queue.
+ddz-jobs --runs-dir runs --jobs-dir runs/jobs submit --spec examples/v9_smoke.json
+# Explicitly process queued jobs with at most two subprocesses.
+ddz-jobs --runs-dir runs --jobs-dir runs/jobs work --parallel 2 --once
+
+# Start single-worker local Arena: sessions recover paused after process restart.
+ddz-arena --host 127.0.0.1 --port 8765 --allow-baseline --jobs-dir runs/jobs
+```
+
+To compare registered Checkpoints by role:
+
+```bash
+ddz-crossplay-matrix --registry-dir runs/registry \
+  --landlords lord-a,lord-b --farmer-ups up-a,up-b --farmer-downs down-a \
+  --seed 2026 --deals 50 --draws 500 --report runs/reports/v10-matrix.json
+```
+
+Replace example model IDs with actually registered inference bundles. The `Training Jobs`
+and `Cross-Play Matrix` Web tabs read existing artifacts; they cannot start
+arbitrary training. Durable jobs require running the explicit `ddz-jobs work`
+supervisor (optionally managed by the operator's service manager).
+
+**Full architecture, safety and recovery instructions:**
+[docs/V10_RESILIENCE_AND_MATRIX.md](docs/V10_RESILIENCE_AND_MATRIX.md).
+
+---
+
 # DDZ RL Lab — v9.0: Experiment Orchestration + Cross-Play + Operator Login
 
 **v9.0** adds reproducible foreground experiment specs and resume safeguards, early stopping,

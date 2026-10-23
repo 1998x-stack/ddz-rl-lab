@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#09191b"><title>DDZ RL Lab · Research Console v9</title><link rel="stylesheet" href="/static/style.css"></head>
+<meta name="theme-color" content="#09191b"><title>DDZ RL Lab · Research Console v10</title><link rel="stylesheet" href="/static/style.css"></head>
 <body><main class="shell">
 <header class="top"><div><p class="overline">DDZ RL LAB · EXPERIMENT CONSOLE</p><h1>斗地主强化学习实验室</h1><p class="subtitle">公开状态实时展示 · 已验证 Checkpoint · 无下注与充值</p></div><span class="pill" id="connection">连接中</span></header>
 <section id="operator-login" class="panel" hidden><h2>操作员登录</h2><p class="subtitle">该部署需要操作员令牌。请在受信任的 HTTPS 或本机连接中使用。</p><form><input type="password" placeholder="输入操作员令牌" autocomplete="off" required><button type="submit">登录</button></form><p role="status"></p></section>
@@ -11,6 +11,8 @@
 <button type="button" data-tab="reports">Tournament</button>
 <button type="button" data-tab="replays">历史回放</button>
 <button type="button" data-tab="logs">Loguru</button>
+<button type="button" data-tab="jobs">Training Jobs</button>
+<button type="button" data-tab="matrix">Cross-Play Matrix</button>
 </nav>
 <div id="tab-arena" class="lab-view">
 <section class="setup panel"><div class="fields"><label>座位 0 · 模型<select id="m0"></select></label><label>座位 1 · 模型<select id="m1"></select></label><label>座位 2 · 模型<select id="m2"></select></label><label>随机种子（可留空）<input id="seed" type="number" min="0" max="4294967295" placeholder="自动生成"></label></div><button id="create" class="primary">创建对局</button><div id="notice" role="status" aria-live="polite"></div></section>
@@ -27,5 +29,7 @@
 <section id="tab-replays" class="lab-view" hidden><div class="panel"><div class="lab-heading"><h2>VERIFIED REPLAY</h2><div class="lab-actions"><select id="replay-select" aria-label="选择已结束回放"></select><button type="button" id="replays-refresh">刷新</button></div></div><p class="subtitle">只展示完成牌局经状态哈希验证后的公开事件及剩余牌数，不包含任何隐藏手牌。</p>
 <div id="replay-information" class="kpis"></div><label class="seek-label">逐步查看 <output id="replay-step">—</output><input id="replay-seek" type="range" min="0" max="0" value="0" disabled></label><div id="replay-details" class="data-list"></div></div></section>
 <section id="tab-logs" class="lab-view" hidden><div class="panel"><div class="lab-heading"><h2>LOGURU DIAGNOSTICS</h2><button type="button" id="logs-refresh">读取最近日志</button></div><p class="subtitle">只读最后 120 条摘要，隐藏异常堆栈、内部手牌与私有追踪数据。</p><ol id="log-list" class="logs-list"></ol></div></section>
+<section id="tab-jobs" class="lab-view" hidden><div class="panel"><div class="lab-heading"><h2>DURABLE TRAINING JOBS</h2><button id="jobs-refresh" type="button">刷新</button></div><p class="subtitle">只读队列和血缘摘要；训练任务由服务器 CLI 操作，不允许网页执行任意训练命令。</p><div id="jobs-list" class="data-list"></div></div></section>
+<section id="tab-matrix" class="lab-view" hidden><div class="panel"><div class="lab-heading"><h2>ROLE CROSS-PLAY MATRIX</h2><div class="lab-actions"><select id="matrix-select" aria-label="选择角色模型组合评测"></select><button id="matrix-refresh" type="button">刷新</button></div></div><p class="subtitle">每个组合使用相同初始牌局；地主胜率不是单一模型的绝对实力，也不直接触发晋升。</p><div id="matrix-list" class="data-list"></div></div></section>
 <footer>本项目为无资金机制的斗地主 RL 研究模拟。训练和竞技指标不构成真实对局能力保证。Web 控制台默认只供本机操作，如启用操作员令牌也应通过可信 HTTPS 代理部署，且不等于多用户权限管理。</footer></main>
 <script src="/static/auth.js" defer></script><script src="/static/app.js" defer></script><script src="/static/lab.js" defer></script></body></html>

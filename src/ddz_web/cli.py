@@ -16,6 +16,7 @@ def main() -> None:
     parser.add_argument('--replay-dir', default='runs/arena-replays')
     parser.add_argument('--log-dir', default='logs')
     parser.add_argument('--runs-dir', default='runs', help='read-only training artifacts root')
+    parser.add_argument('--jobs-dir', default='runs/jobs', help='read-only job queue metadata root')
     parser.add_argument('--reports-dir', default='runs/reports', help='read-only tournament reports root')
     parser.add_argument('--allow-baseline', action='store_true',
                         help='enable NON-learning random policies for development only')
@@ -32,7 +33,7 @@ def main() -> None:
     uvicorn.run(create_app(args.registry_dir, args.replay_dir,
                            allow_baseline=args.allow_baseline,
                            runs_dir=args.runs_dir, reports_dir=args.reports_dir,
-                           log_dir=args.log_dir, operator_token=token,
+                           log_dir=args.log_dir, jobs_dir=args.jobs_dir, operator_token=token,
                            secure_auth_cookie=args.secure_auth_cookie,
                            allowed_hosts=['localhost', '127.0.0.1', 'testserver',
                                           *(args.allowed_host or [])]),

@@ -47,6 +47,7 @@ async function refreshOverview() {
   updateSelect(lab('compare-run-select'),overview.runs.map(r=>r.run_id),'没有比较对象',lab('compare-run-select').value);
   updateSelect(lab('report-select'),overview.reports.map(r=>r.report_id),'没有 Tournament 报告',lab('report-select').value);
   updateSelect(lab('replay-select'),overview.replays.map(r=>r.replay_id),'没有已结束的对局',lab('replay-select').value);
+  updateSelect(lab('matrix-select'),(overview.matrices||[]).map(r=>r.report_id),'没有组合评测',lab('matrix-select').value);
   const body=lab('registry-list');body.replaceChildren();
   const all=Object.entries(overview.models.models);
   if(!all.length)empty(body,'暂无已注册 Checkpoint；使用 ddz-league register 进行注册。');
@@ -104,8 +105,28 @@ async function loadReplay() {
 async function loadLogs(){const r=await labApi('/api/lab/logs');const el=lab('log-list');el.replaceChildren();if(!r.lines.length){empty(el,'没有可显示的 Loguru JSONL 日志');return;}
   for(const entry of [...r.lines].reverse()) {const li=addText(el,'li','');addText(li,'span',entry.time||'','muted');addText(li,'span',entry.level||'','log-level');addText(li,'span',entry.message||'');}
 }
+async function loadJobs() {
+  const result=await labApi('/api/lab/jobs');const area=lab('jobs-list');area.replaceChildren();
+  if(!result.jobs.length){empty(area,'暂无调度任务，请通过 ddz-jobs submit 添加');return;}
+  for(const job of result.jobs){const row=addText(area,'div','','data-row');
+    addText(row,'strong',job.experiment_id+' · '+job.status);
+    addText(row,'small','Job '+job.job_id.slice(0,12)+' · '+(job.created_at||''));
+    if(job.parent_experiment)addText(row,'small','Parent: '+job.parent_experiment);
+    if(job.exit_code!==null)addText(row,'small','Exit code: '+job.exit_code);
+  }
+}
+async function loadMatrix() {
+  const area=lab('matrix-list');area.replaceChildren();const id=lab('matrix-select').value;
+  if(!id){empty(area,'暂无 Cross-Play Matrix 报告');return;}
+  const data=await labApi('/api/lab/matrices/'+encodeURIComponent(id));
+  for(const row of data.rows){const el=addText(area,'div','','data-row');
+    addText(el,'strong',Object.entries(row.models).map(([role,model])=>role+': '+model).join(' · '));
+    addText(el,'small','Landlord win rate: '+fmt(row.landlord_win_rate)+' · '+row.completed+' seeded games');
+  }
+  addText(area,'p','组合相互对抗的胜率不能直接用于 Checkpoint 自动晋升。','muted');
+}
 async function safely(fn) {try{await fn();}catch(e){const pane=document.querySelector('.lab-view:not([hidden])');const msg=pane.querySelector('.lab-error')||addText(pane,'p','','lab-error');msg.textContent='数据读取失败：'+e.message;}}
-const loaders={arena:async()=>{},runs:async()=>{await refreshOverview();await loadRun();},models:refreshOverview,reports:async()=>{await refreshOverview();await loadReport();},replays:async()=>{await refreshOverview();await loadReplay();},logs:loadLogs};
+const loaders={arena:async()=>{},runs:async()=>{await refreshOverview();await loadRun();},models:refreshOverview,reports:async()=>{await refreshOverview();await loadReport();},replays:async()=>{await refreshOverview();await loadReplay();},logs:loadLogs,jobs:loadJobs,matrix:async()=>{await refreshOverview();await loadMatrix();}};
 for (const btn of document.querySelectorAll('[data-tab]'))btn.onclick=()=>{
   const tab=btn.dataset.tab;for(const view of document.querySelectorAll('.lab-view'))view.hidden=view.id!=='tab-'+tab;
   for(const el of document.querySelectorAll('[data-tab]'))el.classList.toggle('selected',el===btn);
@@ -116,6 +137,9 @@ lab('replay-select').onchange=()=>safely(loadReplay);lab('replay-seek').oninput=
 lab('run-refresh').onclick=()=>safely(loaders.runs);lab('models-refresh').onclick=()=>safely(loaders.models);
 lab('reports-refresh').onclick=()=>safely(loaders.reports);lab('replays-refresh').onclick=()=>safely(loaders.replays);
 lab('logs-refresh').onclick=()=>safely(loadLogs);
+lab('jobs-refresh').onclick=()=>safely(loadJobs);
+lab('matrix-select').onchange=()=>safely(loadMatrix);
+lab('matrix-refresh').onclick=()=>safely(loaders.matrix);
 
 async function compareRuns() {
   const left=lab('run-select').value,right=lab('compare-run-select').value;

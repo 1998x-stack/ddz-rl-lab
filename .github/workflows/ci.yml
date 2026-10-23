@@ -104,3 +104,20 @@ jobs:
           assert cp['schema']=='ddz-crossplay-v1'
           assert cp['lineups']['smoke']['deals']==2
           PYV9
+
+      - name: v10 durable Arena, subprocess queue and role matrix smoke
+        run: |
+          OMP_NUM_THREADS=1 python -m pytest tests/test_v10_features.py -q
+          node --check src/ddz_web/static/lab.js
+          OMP_NUM_THREADS=1 ddz-jobs --runs-dir /tmp/ddz-v10-runs --jobs-dir /tmp/ddz-v10-jobs submit --spec examples/v9_smoke.json
+          OMP_NUM_THREADS=1 ddz-jobs --runs-dir /tmp/ddz-v10-runs --jobs-dir /tmp/ddz-v10-jobs work --parallel 1 --once
+          OMP_NUM_THREADS=1 ddz-crossplay-matrix --registry-dir /tmp/ddz-v6-registry --landlords baseline --farmer-ups baseline --farmer-downs baseline --deals 2 --seed 2919 --draws 100 --report /tmp/ddz-v10-matrix.json
+          python - <<'PYV10'
+          from pathlib import Path
+          import json
+          from ddz_experiments.jobs import JobQueue
+          records = JobQueue('/tmp/ddz-v10-jobs','/tmp/ddz-v10-runs').list()
+          assert len(records)==1 and records[0]['status']=='succeeded'
+          matrix = json.loads(Path('/tmp/ddz-v10-matrix.json').read_text())
+          assert matrix['schema']=='ddz-crossplay-matrix-v1' and len(matrix['rows'])==1
+          PYV10

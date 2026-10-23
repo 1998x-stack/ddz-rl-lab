@@ -4,10 +4,16 @@ Foreground experiment runner (JSON specs and checkpoints), configurable Early St
 seeded three-role Cross-Play, optional single-operator authenticated Web (including WebSocket).
 See [V9_EXPERIMENTS_AND_SECURITY.md](V9_EXPERIMENTS_AND_SECURITY.md).
 
-## v10.0 candidates (not implemented)
+## v10.0 delivered
 
-Persist and securely recover unfinished Arena sessions; bounded background job scheduler;
-checkpoint lineup heatmaps and stronger evaluation robustness; experiment lineage.
+Crash-checked private Arena journals and paused restart recovery; SQLite local queued jobs
+with bounded subprocess workers and parent-run ancestry; common-seed role-checkpoint
+Cross-Play matrix; read-only Web job/matrix views. See `V10_RESILIENCE_AND_MATRIX.md`.
+
+## v11.0 candidates (not implemented)
+
+Job reconciliation/cancellation and resource isolation, stronger tournament multiple-comparison
+corrections, long-run checkpoint quality validation and multi-host cluster architecture.
 
 # 分阶段 Code Category / Package Roadmap
 
@@ -105,3 +111,6 @@ Next: more robust on-disk session lifecycle, server auth for optional LAN deploy
 - `ddz_web.lab`: bounded read-only artefact index, structured metrics, reports, replay verification and restricted logs.
 - `ddz_web.static/lab.js`: training charts, registry, tournament comparison, verified public replay scrubbing and diagnostic summaries.
 - New REST GET APIs and CLI folder flags. No background learner control or internet-facing authentication.
+
+- `v9.0` delivered: foreground experiment runner, early stopping, role Cross-Play, single-operator auth.
+- `v10.0` delivered: persisted Arena recovery, bounded queued training jobs, role matrix and read-only Web projections.

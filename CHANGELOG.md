@@ -1,3 +1,16 @@
+## v10.0 — durable Arena + bounded training jobs + role Cross-Play matrix
+
+- Atomic private Arena journal on creation and every successful action; model SHA pin,
+  RNG-state continuation, deterministic digest-verified restart; unfinished games recover paused.
+- SQLite bounded local subprocess supervisor (`ddz-jobs`) with duplicate guard,
+  immutable spec checksum, parent experiment lineage, safe interrupted-job handling.
+- Role Checkpoint Cross-Play Cartesian matrix (`ddz-crossplay-matrix`), common deal seeds,
+  pairwise clustered intervals; no auto model promotion.
+- Read-only operator-protected Training Jobs and Cross-Play Matrix Web tabs/APIs.
+- v10 test coverage and CI smoke; release wheel contains updated static assets.
+- Not included: multi-host scheduler, distributed Arena transactions, automatic retries,
+  public gaming accounts or guaranteed strong RL models.
+
 ## v9.0 — Experiment management, role combination research, optional operator gate
 
 - Add `ddz_experiments` with JSON RunSpec validation, foreground execution, conservative resume and persisted status.

@@ -26,6 +26,7 @@ from ddz_models.network import NetworkSpec
 from ddz_models.policy import RoleBundle
 from ddz_registry import ModelRegistry
 from ddz_training.checkpoints import load_checkpoint
+from .persistence import ArenaJournal
 
 
 MAX_TURNS = 1200
@@ -73,6 +74,8 @@ class ArenaGame:
     policies: tuple[RoleBundle | None, RoleBundle | None, RoleBundle | None]
     rngs: tuple[random.Random, random.Random, random.Random]
     replay_dir: Path
+    journal: ArenaJournal | None = None
+    model_hashes: tuple[str, str, str] = ("", "", "")
     delay: float = 0.7
     running: bool = False
     status: str = "paused"
@@ -128,6 +131,8 @@ class ArenaGame:
                     idx = decision.local_index
                     role = decision.role
                 event = self.env.step(idx)
+                if self.journal is not None:
+                    self.journal.save(self)
             except Exception as exc:
                 self.running = False
                 self.status = "error"
@@ -180,6 +185,8 @@ class ArenaGame:
             self.status = "running"
             if self.task is None or self.task.done():
                 self.task = asyncio.create_task(self._autoplay(), name=f"arena:{self.game_id}")
+        if action == 'speed' and self.journal is not None:
+            self.journal.save(self)
         self._publish()
         return self.snapshot()
 
@@ -202,6 +209,8 @@ class ArenaManager:
         self.max_sessions = max_sessions
         self.games: dict[str, ArenaGame] = {}
         self._models: dict[tuple[str, str], RoleBundle] = {}
+        self.journal = ArenaJournal(self.replay_dir)
+        self._restore_games()
 
     def available_models(self) -> dict:
         index = self.registry.list_models()
@@ -236,12 +245,45 @@ class ArenaManager:
             raise ValueError("seed must be unsigned 32-bit integer")
         policies = tuple(self._load_model(x) for x in ids)
         game_id = secrets.token_hex(12)
+        hashes = tuple("@random" if x == "@random" else self.registry.verify(x, load_weights=False)["sha256"] for x in ids)
         game = ArenaGame(game_id, DDZEnv(seed), ids, policies,
                          tuple(random.Random(seed + i * 1009) for i in range(3)),
-                         self.replay_dir, delay)
+                         self.replay_dir, journal=self.journal, model_hashes=hashes, delay=delay)
+        self.journal.save(game)
         self.games[game_id] = game
         logger.bind(game_id=game_id, models=ids, seed=seed).info("arena_created")
         return game
+
+    def _restore_games(self) -> None:
+        """Restore only exact verified journals, always in paused state."""
+        for record in self.journal.read_all(self.max_sessions):
+            try:
+                ids = tuple(record['model_ids'])
+                if not all(isinstance(i, str) for i in ids):
+                    raise ValueError('invalid model references')
+                policies = tuple(self._load_model(i) for i in ids)
+                hashes = tuple('@random' if i == '@random' else
+                               self.registry.verify(i, load_weights=False)['sha256'] for i in ids)
+                if hashes != tuple(record['model_sha256']):
+                    raise ValueError('model pin differs from journal')
+                env = ArenaJournal.restore_env(record)
+                seed = record['seed']
+                rngs = tuple(random.Random(seed + i * 1009) for i in range(3))
+                for rng, state in zip(rngs, record['rng_states']):
+                    ArenaJournal.restore_rng(rng, state)
+                state_status = ('truncated' if env.engine.state.truncated else 'finished') if env.done else 'paused'
+                game = ArenaGame(record['game_id'], env, ids, policies, rngs,
+                                 self.replay_dir, journal=self.journal, model_hashes=hashes,
+                                 delay=record['delay'], status=state_status)
+                self.games[game.game_id] = game
+                if env.done:
+                    replay = env.export_replay()
+                    replay['model_ids'] = list(ids)
+                    _atomic_json(self.replay_dir / f'{game.game_id}.json', replay)
+                logger.bind(game_id=game.game_id).info('arena_session_restored')
+            except Exception as exc:
+                logger.bind(game_id=record.get('game_id'), error=type(exc).__name__).warning(
+                    'arena_session_restore_rejected')
 
     def get(self, game_id: str) -> ArenaGame:
         try:

@@ -46,6 +46,7 @@ def create_app(registry_dir: str | Path = 'runs/registry',
                runs_dir: str | Path = 'runs',
                reports_dir: str | Path = 'runs/reports',
                log_dir: str | Path = 'logs',
+               jobs_dir: str | Path | None = None,
                operator_token: str | None = None,
                secure_auth_cookie: bool = False) -> FastAPI:
     @asynccontextmanager
@@ -53,13 +54,14 @@ def create_app(registry_dir: str | Path = 'runs/registry',
         yield
         await app.state.manager.close()
 
-    app = FastAPI(lifespan=lifespan, title='DDZ RL Lab Arena', version='0.9.0',
+    app = FastAPI(lifespan=lifespan, title='DDZ RL Lab Arena', version='0.10.0',
                   description='Local no-stakes, registered-checkpoint spectator arena')
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts or [
         'localhost', '127.0.0.1', 'testserver'])
     app.state.manager = ArenaManager(Path(registry_dir), Path(replay_dir),
                                      allow_baseline=allow_baseline, max_sessions=max_sessions)
-    app.state.lab = LabStore(Path(runs_dir), Path(reports_dir), Path(replay_dir), Path(log_dir))
+    app.state.lab = LabStore(Path(runs_dir), Path(reports_dir), Path(replay_dir), Path(log_dir),
+                             jobs_dir=Path(jobs_dir) if jobs_dir else None)
     origins = trusted_origins or set()
     auth = OperatorAuth(operator_token, secure_cookie=secure_auth_cookie)
 
@@ -101,6 +103,7 @@ def create_app(registry_dir: str | Path = 'runs/registry',
         models = app.state.manager.available_models()
         return {'schema': 'ddz-lab-v1', 'runs': app.state.lab.runs(),
                 'reports': app.state.lab.reports(), 'replays': app.state.lab.replays(),
+                'jobs': app.state.lab.jobs(), 'matrices': app.state.lab.matrices(),
                 'models': models}
 
     @app.get('/api/lab/runs')
@@ -122,6 +125,21 @@ def create_app(registry_dir: str | Path = 'runs/registry',
             return app.state.lab.compare_runs(left, right)
         except (LabError, FileNotFoundError) as exc:
             raise HTTPException(404, detail='invalid run comparison') from exc
+
+    @app.get('/api/lab/jobs')
+    def job_records():
+        return {'jobs': app.state.lab.jobs()}
+
+    @app.get('/api/lab/matrices')
+    def matrix_reports():
+        return {'matrices': app.state.lab.matrices()}
+
+    @app.get('/api/lab/matrices/{report_id}')
+    def matrix_report(report_id: str):
+        try:
+            return app.state.lab.matrix(report_id)
+        except (LabError, FileNotFoundError, ValueError, OSError) as exc:
+            raise HTTPException(404, detail='matrix report unavailable') from exc
 
     @app.get('/api/lab/reports')
     def reports():

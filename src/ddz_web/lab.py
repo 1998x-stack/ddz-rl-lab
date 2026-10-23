@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -102,11 +103,13 @@ def _frame(engine: GameEngine) -> dict[str, Any]:
 
 
 class LabStore:
-    def __init__(self, runs_dir: Path, reports_dir: Path, replay_dir: Path, log_dir: Path):
+    def __init__(self, runs_dir: Path, reports_dir: Path, replay_dir: Path, log_dir: Path,
+                 jobs_dir: Path | None = None):
         self.runs_dir = Path(runs_dir).resolve()
         self.reports_dir = Path(reports_dir).resolve()
         self.replay_dir = Path(replay_dir).resolve()
         self.log_dir = Path(log_dir).resolve()
+        self.jobs_dir = Path(jobs_dir).resolve() if jobs_dir is not None else self.runs_dir / "jobs"
 
     def runs(self) -> list[dict[str, Any]]:
         results = []
@@ -169,6 +172,48 @@ class LabStore:
                 'results': result, 'balanced_score_delta': (b - a if a is not None and b is not None else None),
                 'interpretation': 'Descriptive only; unequal seeds/checkpoints are not paired trials. '
                                   'Use deal-clustered Tournament for significance.'}
+
+    def jobs(self, *, limit: int = 50) -> list[dict[str, Any]]:
+        # Bounded read-only projection: never start or cancel a job over HTTP.
+        db = self.jobs_dir / 'jobs.sqlite3'
+        if self.jobs_dir.is_symlink() or db.is_symlink() or not db.is_file():
+            return []
+        try:
+            conn = sqlite3.connect(f'file:{db}?mode=ro', uri=True, timeout=2)
+            try:
+                rows = conn.execute('SELECT job_id,experiment_id,parent_experiment,status, '
+                                    'created_at,started_at,finished_at,exit_code FROM jobs '
+                                    'ORDER BY created_at DESC,job_id DESC LIMIT ?', (min(limit, 100),)).fetchall()
+            finally:
+                conn.close()
+        except (sqlite3.Error, OSError):
+            return []
+        fields = ('job_id','experiment_id','parent_experiment','status',
+                  'created_at','started_at','finished_at','exit_code')
+        return [dict(zip(fields, row)) for row in rows]
+
+    def matrices(self) -> list[dict[str, Any]]:
+        result = []
+        for name in _list_names(self.reports_dir, '.json'):
+            try:
+                report = _json_file(_safe_file(self.reports_dir, name + '.json'))
+                if report.get('schema') != 'ddz-crossplay-matrix-v1':
+                    continue
+                result.append({'report_id': name, 'seed': report.get('seed'),
+                               'deals': report.get('deals'),
+                               'combinations': min(len(report.get('rows', [])), 64)})
+            except (LabError, FileNotFoundError, ValueError, OSError):
+                continue
+        return result
+
+    def matrix(self, report_id: str) -> dict[str, Any]:
+        report = _json_file(_safe_file(self.reports_dir, _identifier(report_id) + '.json'))
+        if (report.get('schema') != 'ddz-crossplay-matrix-v1' or
+                not isinstance(report.get('rows'), list) or len(report['rows']) > 64 or
+                not isinstance(report.get('paired_differences'), list) or
+                len(report['paired_differences']) > 2016):
+            raise LabError('invalid matrix report')
+        return report
 
     def reports(self) -> list[dict[str, Any]]:
         result = []
