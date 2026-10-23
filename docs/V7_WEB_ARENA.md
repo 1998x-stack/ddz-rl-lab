@@ -2,7 +2,7 @@
 
 ## Goal & boundaries
 
-Local, no-stakes, spectator-first display of three RL-controlled seats in the same `DDZEnv` used for training. A seat picks an **operator-registered, inference-only** `RoleBundle`. For each move, the model receives `PlayerObservation` (seat-specific private hand + public state only), not `GameState`. The browser never receives hidden physical cards before the game ends. Selecting `baseline` requires explicit `--allow-baseline` and does **not** constitute RL inference.
+Local, no-stakes, spectator-first display of three RL-controlled seats in the same `DDZEnv` used for training. A seat picks an **operator-registered, inference-only** `RoleBundle`. For each move, the model receives `PlayerObservation` (seat-specific private hand + public state only), not `GameState`. The browser never receives hidden physical cards before the game ends. Selecting `@random` requires explicit `--allow-baseline` and does **not** constitute RL inference.
 
 The web app is not a WeChat/Tencent integration. No bets, payments, real/virtual chips, unlicensed game assets, online matchmaking, user accounts or external automation.
 

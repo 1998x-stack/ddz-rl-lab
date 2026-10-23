@@ -4,7 +4,7 @@ let gameId = null, socket = null, current = null;
 const names = ['3','4','5','6','7','8','9','10','J','Q','K','A','2','小王','大王'];
 async function api(url, init) { const r = await fetch(url, init); const d = await r.json(); if (!r.ok) throw new Error(d.detail || r.statusText); return d; }
 function notice(message) { $('notice').textContent = message || ''; }
-function models(select, data) { select.replaceChildren(); const ids = Object.keys(data.models); if (data.baseline_enabled) ids.unshift('baseline'); for (const id of ids) { const item = new Option(id === 'baseline' ? '随机 Baseline（非 RL）' : id, id); select.add(item); } if (data.active && ids.includes(data.active)) select.value = data.active; }
+function models(select, data) { select.replaceChildren(); const ids = Object.keys(data.models); if (data.baseline_enabled) ids.unshift('@random'); for (const id of ids) { const item = new Option(id === '@random' ? '随机 Baseline（非 RL）' : id, id); select.add(item); } if (data.active && ids.includes(data.active)) select.value = data.active; }
 async function init() { try { const data = await api('/api/models'); for(const n of ['m0','m1','m2']) models($(n),data); if (!Object.keys(data.models).length && !data.baseline_enabled) notice('请先注册并激活训练好的模型，或以 --allow-baseline 启动演示。'); $('connection').textContent='服务已连接'; } catch(e) { $('connection').textContent='连接失败'; notice(e.message); } }
 function update(data) {
  current=data; gameId=data.game_id;

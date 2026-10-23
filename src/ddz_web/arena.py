@@ -121,7 +121,7 @@ class ArenaGame:
             try:
                 if policy is None:
                     idx = random_action_index(self.env, self.rngs[seat])
-                    role = "baseline"
+                    role = "@random"
                 else:
                     # Offload CPU-heavy candidate scoring to avoid blocking the WS event loop.
                     decision = await asyncio.to_thread(policy.act, obs, self.rngs[seat], 0.0)
@@ -209,7 +209,7 @@ class ArenaManager:
                 "baseline_enabled": self.allow_baseline}
 
     def _load_model(self, model_id: str) -> RoleBundle | None:
-        if model_id == "baseline":
+        if model_id == "@random":
             if not self.allow_baseline:
                 raise ValueError("baseline mode is disabled; register a trained inference bundle")
             return None
