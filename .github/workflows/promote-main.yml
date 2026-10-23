@@ -1,0 +1,63 @@
+name: Promote latest validated version to main
+
+on:
+  workflow_run:
+    workflows: ["Unit Tests"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  fast-forward-main:
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_repository.full_name == github.repository &&
+          startsWith(github.event.workflow_run.head_branch, 'v') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Promote only the newest version branch after successful tests
+        env:
+          COMPLETED_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin '+refs/heads/v*:refs/remotes/origin/v*' '+refs/heads/main:refs/remotes/origin/main'
+          python3 - <<'PY'
+          import os, re, subprocess, sys
+          branch = os.environ["COMPLETED_BRANCH"]
+          match = re.fullmatch(r"v([0-9]+)\.([0-9]+)(?:\.([0-9]+))?", branch)
+          if not match:
+              print("Ignoring non-version branch:", branch)
+              sys.exit(0)
+          refs = subprocess.check_output(
+              ["git", "for-each-ref", "--format=%(refname:short)", "refs/remotes/origin/v*"],
+              text=True,
+          ).splitlines()
+          versions = []
+          for ref in refs:
+              name = ref.removeprefix("origin/")
+              m = re.fullmatch(r"v([0-9]+)\.([0-9]+)(?:\.([0-9]+))?", name)
+              if m:
+                  versions.append((tuple(int(x or 0) for x in m.groups()), name))
+          if not versions or max(versions)[1] != branch:
+              print("Completed branch is not the latest version; no promotion.")
+              sys.exit(0)
+          latest_sha = subprocess.check_output(
+              ["git", "rev-parse", f"refs/remotes/origin/{branch}"], text=True
+          ).strip()
+          if latest_sha != os.environ["TESTED_SHA"]:
+              print("Newer, untested commit already exists; no promotion.")
+              sys.exit(0)
+          subprocess.check_call(
+              ["git", "merge-base", "--is-ancestor", "refs/remotes/origin/main", latest_sha]
+          )
+          subprocess.check_call(["git", "push", "origin", f"{latest_sha}:refs/heads/main"])
+          print(f"Fast-forwarded main to verified {branch}@{latest_sha}")
+          PY
