@@ -47,6 +47,7 @@ class TrainConfig:
     min_score_improvement: float = 0.0
     redeal_penalty: float = 1.0
     model_schema: str = "ddz-candidate-mlp-v1"
+    learning_target_version: str = "ddz-team-normalized-pairwise-v1"
 
     def __post_init__(self) -> None:
         positives = ("episodes", "batch_episodes", "eval_games", "eval_every", "hidden",
@@ -66,6 +67,8 @@ class TrainConfig:
             raise ValueError("history_probability must be in [0,1]")
         if not math.isfinite(self.redeal_penalty) or not 0 <= self.redeal_penalty <= 2:
             raise ValueError("redeal_penalty must be in [0,2]")
+        if self.learning_target_version != "ddz-team-normalized-pairwise-v1":
+            raise ValueError("unknown training target contract")
         if self.model_schema not in {"ddz-candidate-mlp-v1", "ddz-candidate-mlp-v2"}:
             raise ValueError("unsupported model_schema")
         if self.eval_opponent not in {'random', 'reasonable'}:
@@ -185,7 +188,8 @@ class DMCTrainer:
         payload = load_checkpoint(Path(path), self.bundle, self.optimizers)
         saved = payload["config"]
         if ("redeal_penalty" not in saved or "model_schema" not in saved or
-                "bid_epsilon" not in saved):
+                "bid_epsilon" not in saved or
+                saved.get("learning_target_version") != self.config.learning_target_version):
             raise ValueError("cannot resume legacy checkpoint with deal-aware bid targets")
         for field in ("seed", "hidden", "lr", "epsilon", "bid_epsilon",
                       "batch_episodes", "max_steps", "eval_opponent",
