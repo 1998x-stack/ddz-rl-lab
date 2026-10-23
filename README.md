@@ -1,4 +1,4 @@
-# DDZ RL Lab — v5.0
+# DDZ RL Lab — v6.0
 
 [![CI](https://github.com/1998x-stack/ddz-rl-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/1998x-stack/ddz-rl-lab/actions/workflows/ci.yml)
 
@@ -8,7 +8,8 @@
 - `v2.0`: P2 environment specification and safe-forward promotion workflow.
 - `v3.0`: runnable multi-agent environment, candidate encodings, terminal team rewards, PettingZoo AEC, and test baselines.
 - `v4.0`: runnable PyTorch role-aware candidate-action MLP, synchronous Deep Monte Carlo self-play, Loguru metrics, checkpoint save/resume, deterministic external-random-opponent evaluation, and CI smoke tests.
-- **`v5.0`: local multi-process actor sampling, bounded replay with restorable snapshots, rolling frozen historical opponents, throughput JSONL metrics, and two-sided tournament against historical checkpoints.**
+- `v5.0`: local multi-process actor sampling, bounded replay with restorable snapshots, rolling frozen historical opponents, throughput JSONL metrics, and two-sided tournament against historical checkpoints.**
+- **`v6.0`: multi-seed paired tournaments with deal-cluster bootstrap, immutable inference model registry, and evidence-gated manual champion promotion.**
 - **Not included:** multi-host distributed actor–learner cluster, production-ready strong models, PPO, model-serving API, Web UI, money, wagers, payments, or Tencent integration.
 
 > This is an independent rules-based educational simulator, not Tencent's proprietary code or a live mini-program replica. Rule divergences and versioned house rules are described in [`docs/RULE_SPEC.md`](docs/RULE_SPEC.md).
@@ -24,7 +25,7 @@
 ```bash
 git clone https://github.com/1998x-stack/ddz-rl-lab.git
 cd ddz-rl-lab
-git switch v5.0
+git switch v6.0
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -54,7 +55,8 @@ ddz-demo --games 3 --seed 2026
 | Baseline | `ddz_env.baselines` | Seeded random legal-action rollouts and CLI |
 | Training models | `ddz_models` | Role Q(s,a) network, private-safe candidate inference |
 | Learner / Checkpoint | `ddz_training` | Spawn actor pool, bounded replay, MC learner, frozen pool, SHA-256 model bundles, resume |
-| Evaluation | `ddz_eval` | Frozen random-opponent trials, seeded cross-checkpoint bilateral tournament |
+| Evaluation | `ddz_eval` | Frozen random-opponent trials, seeded cross-checkpoint bilateral tournament, paired deal-cluster statistics and selection |
+| Model registry | `ddz_registry` | SHA-verified immutable inference models and explicit champion pointer |
 | Diagnostics | `ddz_core.logging_config` | Loguru rotating logs |
 | Tests | `tests/` | Unit, random rollout, replay and PettingZoo API tests |
 
@@ -148,7 +150,7 @@ python -m pytest -q tests/test_env.py
 python -m pytest -q tests/test_pettingzoo_adapter.py  # requires .[rl]
 ```
 
-GitHub Actions runs Python 3.10 / 3.12 / 3.13 with `[dev,rl]`. It runs the test suite and a 3-episode `ddz-env-demo` smoke test. Tests cover invariants, replay, malformed actions, observation secrecy, semantic fixed global IDs, terminal rewards, and AEC semantics. Do not claim RL training is implemented: these are **environment tests**, not learning-performance results.
+GitHub Actions runs Python 3.10 / 3.12 / 3.13 with `[dev,rl]`. It runs the test suite and a 3-episode `ddz-env-demo` smoke test. Tests cover invariants, replay, malformed actions, observation secrecy, semantic global IDs, terminal rewards, AEC semantics, training, checkpoint compatibility, and registry selection gates. CI smoke runs do not prove convergence or superior playing strength.
 
 ## Logging and reproducibility
 
@@ -162,7 +164,7 @@ ddz-env-demo --episodes 10 --seed 42 --log-dir logs --replay-out replays/last.js
 
 ## Roadmap / branch policy
 
-`v1.0` preserves P0/P1, `v2.0` preserves P2 design, `v3.0` provides the ENV, `v4.0` adds baseline neural DMC, and **`v5.0` adds local actor parallelism, replay and tournaments**. Next: robust checkpoint selection, multi-host throughput and Web Arena. `main` should only be fast-forward advanced to the **latest tested release branch**. The promotion workflow is included under `.github/workflows/` and must have write permission to work automatically. See [`docs/ROADMAP.md`](docs/ROADMAP.md).
+`v1.0` preserves P0/P1, `v2.0` preserves P2 design, `v3.0` provides the ENV, `v4.0` adds baseline neural DMC, `v5.0` adds local actor parallelism and replay, and **`v6.0` adds multi-seed model selection and a local registry**. Next: multi-host throughput and Web Arena. `main` should only be fast-forward advanced to the **latest tested release branch**. The promotion workflow is included under `.github/workflows/` and must have write permission to work automatically. See [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Troubleshooting
 
@@ -186,3 +188,40 @@ Licensed under MIT. Contributions should maintain deterministic legal action ord
 - `runs/dmc-v5/best.weights.pt`: compact best-on-random-baseline inference policy, **not** a claimed globally strongest agent.
 
 The opponent pool is restricted to play decisions (bidding stays learner self-play). Workers refresh snapshots between batches. See [technical details](docs/V5_TRAINING_AND_TOURNAMENT.md).
+
+## v6.0 — Multi-seed tournament, model registry and promotion
+
+Install training extras: `python -m pip install -e '.[dev,rl,train]'`. Tournament comparisons use **complete initial deals** as the bootstrap sampling units; both roles and all frozen opponents share a deal cluster. `--seed-start` may be repeated for disjoint ranges. Only completed, non-truncated fixtures enter selection. More seeded games reduce uncertainty but cannot prove universal strength. The deterministic seeded bidding policy remains random, so the v6 tournament **evaluates only the play policies**, not learned bidding quality.
+
+```bash
+# Candidate and champion must be TRUSTED inference-only .pt checkpoint bundles
+# accompanied by their .pt.json sidecars. Run separate training runs to obtain them.
+ddz-league evaluate \
+  --incumbent champion=runs/runA/best.weights.pt \
+  --candidate challenger=runs/runB/best.weights.pt \
+  --seed-start 810000 --seed-start 820000 --deals-per-seed 40 \
+  --min-deals 50 --draws 2000 --report runs/selection/report.json
+
+# Optional stronger frozen opponent: --opponent history=runs/runA/history/step-000000040.weights.pt
+# Registration is an explicit operator action against a trusted source directory.
+ddz-league --registry-dir runs/registry register \
+  --model-id champion --checkpoint runs/runA/best.weights.pt \
+  --trusted-source-dir runs/runA
+ddz-league --registry-dir runs/registry register \
+  --model-id challenger --checkpoint runs/runB/best.weights.pt \
+  --trusted-source-dir runs/runB
+
+# Only the first model can be activated without tournament evidence.
+ddz-league --registry-dir runs/registry bootstrap --model-id champion
+ddz-league --registry-dir runs/registry list
+
+# Manually review the report. If and only if recommended_id == challenger:
+ddz-league --registry-dir runs/registry promote \
+  --model-id challenger --report runs/selection/report.json
+```
+
+Promotion is **not automatic**. The registry requires an immutable known model, verifies SHA-256 and encoder/schema compatibility, ensures the incumbent has not changed and checks a positive lower paired-confidence bound over `--min-deals`. Otherwise the incumbent remains active. Model ID = versioned registry ID, not Git branch. The evaluation JSON report is **operator-managed evidence**, not cryptographically signed; never expose registration or promotion actions to anonymous clients. No end-user model upload/serving is implemented.
+
+The bootstrap is a 95% percentile interval by default. Initial deals, not seat outcomes, are resampled; when several candidates are selected using one holdout, the reported confidence intervals are exploratory, not multiple-comparison-adjusted. Use a new, untouched confirmation set before making high-stakes claims. Explicitly separated holdout seeds are the operator's responsibility.
+
+See [`docs/V6_MODEL_SELECTION.md`](docs/V6_MODEL_SELECTION.md) for statistical limitations, registry layout, threat boundaries and test gates.

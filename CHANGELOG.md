@@ -1,5 +1,14 @@
 # Changelog
 
+## v6.0 — multi-seed evaluation and local model registry
+
+- Deal-clustered bootstrap confidence intervals and paired candidate–incumbent differences.
+- Deterministic multi-seed tournament with complete fixture validation, model ranking and conservative recommendation gate.
+- Immutable local registry for trusted inference-only bundles; SHA-256, encoder, schema and safe `weights_only` validation.
+- Explicit first champion bootstrap; subsequent promotions require operator-reviewed, checkpoint-hash-bound tournament evidence.
+- `ddz-league` CLI for evaluate/register/bootstrap/list/verify/promote; dedicated tests and CI smoke.
+- No automatic model serving, learned-bidding comparison, multiple-testing correction, Web UI or new trained strong model.
+
 ## v5.0 — local multi-process DMC and tournament
 
 - Spawn-safe parallel Actor workers and frozen snapshots per collection batch.

@@ -37,16 +37,17 @@ def wilson(wins: int, games: int, z: float = 1.95996398454005) -> tuple[float, f
 
 
 def compare_bundles(candidate: RoleBundle, opponent: RoleBundle | None,
-                    *, games: int, seed: int, max_steps: int = 1200) -> dict:
+                    *, games: int, seed: int, max_steps: int = 1200, record_outcomes: bool = False) -> dict:
     if games < 1 or max_steps < 1:
         raise ValueError("games/max_steps must be positive")
     counts = {"landlord": {"wins": 0, "games": 0},
               "farmers": {"wins": 0, "games": 0}, "truncated": 0}
-    rng_model = random.Random(seed ^ 0xAFFE)
+    rows: list[dict] = []
     for offset in range(games):
         for side in ("landlord", "farmers"):
             env = DDZEnv(seed + offset)
             bidding_rng = random.Random((seed+offset)*17+937)
+            rng_model = random.Random((seed+offset)*31+991)
             for _ in range(max_steps):
                 if env.done:
                     break
@@ -72,6 +73,8 @@ def compare_bundles(candidate: RoleBundle, opponent: RoleBundle | None,
             won = env.engine.state.winner == (Team.LANDLORD if side == "landlord"
                                                else Team.FARMERS)
             result["wins"] += int(won)
+            if record_outcomes:
+                rows.append({"deal_seed": seed + offset, "side": side, "won": int(won)})
     values: dict = {"seed": seed, "deals": games, "truncated": counts["truncated"]}
     for side in ("landlord", "farmers"):
         item = counts[side]
@@ -80,11 +83,13 @@ def compare_bundles(candidate: RoleBundle, opponent: RoleBundle | None,
                         "wilson95": list(wilson(wins, n))}
     both = [values[side]["win_rate"] for side in ("landlord", "farmers")]
     values["balanced_score"] = sum(both)/2 if all(x is not None for x in both) else None
+    if record_outcomes:
+        values["outcomes"] = rows
     return values
 
 
 def run_tournament(candidate: RoleBundle, frozen: Iterable[tuple[str, RoleBundle]],
-                   *, games: int, seed: int, max_steps: int = 1200) -> dict:
+                   *, games: int, seed: int, max_steps: int = 1200, record_outcomes: bool = False) -> dict:
     # Each opponent uses same deals and both roles; cannot inflate sample size
     # by aggregating paired outcomes as if they were independent.
     opponents = [("random", None), *frozen]
@@ -92,7 +97,7 @@ def run_tournament(candidate: RoleBundle, frozen: Iterable[tuple[str, RoleBundle
     if len(set(names)) != len(names):
         raise ValueError("tournament opponent identifiers must be unique")
     results = {name: compare_bundles(candidate, opponent, games=games, seed=seed,
-                                     max_steps=max_steps)
+                                     max_steps=max_steps, record_outcomes=record_outcomes)
                for name, opponent in opponents}
     scores = [r["balanced_score"] for r in results.values()
               if r["balanced_score"] is not None]
