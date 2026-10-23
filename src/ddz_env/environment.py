@@ -22,7 +22,7 @@ class Transition(NamedTuple):
     rewards: tuple[float, float, float]
     terminated: bool
     truncated: bool
-    state_digest: str
+    state_digest: str | None
 
 
 @dataclass(frozen=True)
@@ -61,13 +61,13 @@ class DDZEnv:
     def done(self) -> bool:
         return self.engine.state.phase == Phase.FINISHED
 
-    def current_observation(self) -> PlayerObservation:
+    def current_observation(self, *, event_limit: int | None = None) -> PlayerObservation:
         if self.done or self.acting_seat is None:
             raise RuntimeError("no acting agent: episode finished")
-        return self.observe(self.acting_seat)
+        return self.observe(self.acting_seat, event_limit=event_limit)
 
-    def observe(self, seat: int) -> PlayerObservation:
-        return self.engine.observe(seat)
+    def observe(self, seat: int, *, event_limit: int | None = None) -> PlayerObservation:
+        return self.engine.observe(seat, event_limit=event_limit)
 
     def legal_actions(self) -> tuple[Action, ...]:
         return self.engine.legal_actions()
@@ -83,7 +83,7 @@ class DDZEnv:
                      else (-1.0 if lord_won else 1.0)
                      for seat in range(3))  # type: ignore[return-value]
 
-    def step(self, action_index: int) -> Transition:
+    def step(self, action_index: int, *, include_digest: bool = True) -> Transition:
         if self.done:
             raise RuntimeError("step() after terminated/truncated episode")
         if type(action_index) is not int:
@@ -97,16 +97,17 @@ class DDZEnv:
         state = self.engine.state
         return Transition(
             event, actor, self.acting_seat, self.rewards(),
-            self.done and not state.truncated, state.truncated, self.engine.state_digest(),
+            self.done and not state.truncated, state.truncated,
+            self.engine.state_digest() if include_digest else None,
         )
 
-    def step_action(self, action: Action) -> Transition:
+    def step_action(self, action: Action, *, include_digest: bool = True) -> Transition:
         """Convenience entrypoint for baselines. Also validates exact membership."""
         try:
             index = self.legal_actions().index(action)
         except ValueError as exc:
             raise IllegalAction(f"action not in legal candidates: {action!r}") from exc
-        return self.step(index)
+        return self.step(index, include_digest=include_digest)
 
     def export_replay(self) -> dict:
         return self.engine.export_replay()

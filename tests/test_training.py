@@ -68,6 +68,9 @@ def test_training_checkpoint_evaluate_and_resume(tmp_path):
     assert eval_metrics == evaluate_bundle(rebuilt, games=2, seed=250)
     assert eval_metrics["landlord_games"] <= 2
     assert eval_metrics["farmer_games"] <= 2
+    assert eval_metrics["auction_audit"]["first_deal_count"] == 2
+    assert 0 <= eval_metrics["auction_audit"]["all_declined_rate"] <= 1
+    assert eval_metrics["play_quality"]["missed_immediate_wins"] <= eval_metrics["play_quality"]["finish_opportunities"]
     resumed = DMCTrainer(replace(cfg, episodes=1))
     resumed.resume(latest)
     assert resumed.episodes_seen == 2

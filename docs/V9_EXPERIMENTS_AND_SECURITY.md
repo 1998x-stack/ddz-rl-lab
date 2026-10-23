@@ -70,6 +70,10 @@ ddz-crossplay --registry-dir runs/registry \
 
 Each model supplies only its corresponding playing-role network; bidding uses the same seeded random policy, isolating play from auction policy changes. Shared seed integers are used across all lineups, and final outcomes are retained per deal. Results are descriptive and depend on the particular opponents inside each trio. They are **not** suited for champion promotion without the independent fixed opponents and significance gates of v6.
 
+## Arena bidding mode
+
+Arena offers a checked **随机叫牌，所选模型负责出牌** option when creating a game. It sends `random_bidding: true` to `POST /api/games`: the seeded non-learning baseline handles CALL and ROB, while the selected registered models still choose every PLAY action. The public snapshot and completed replay record this flag. Uncheck it to test the model's own bid network; the API default is `false` for existing clients. This option is useful when a weak bid network always declines and the game otherwise reaches the redeal safety cap. It does not improve the model's bidding ability or its tournament score.
+
 ## Optional operator login
 
 By default the web app remains loopback-only and requires no login. For single-operator access, set a long random secret **in the server environment**, never in command arguments, URLs, front-end assets or Git:

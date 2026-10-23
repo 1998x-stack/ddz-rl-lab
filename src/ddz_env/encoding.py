@@ -6,13 +6,24 @@ All features are publicly observable to the selected seat, or belong to its hand
 from __future__ import annotations
 
 from ddz_core.actions import Action, ActionKind, PatternKind
+from ddz_core.cards import FULL_COUNTS
 from ddz_core.state import Phase, PlayerObservation
 
 ENCODER_VERSION = "ddz-observation-v1"
 ACTION_ENCODER_VERSION = "ddz-action-v1"
+ENCODER_VERSION_V2 = "ddz-observation-v2"
+ACTION_ENCODER_VERSION_V2 = "ddz-action-v2"
 PHASES = tuple(Phase)
 KINDS = tuple(ActionKind)
 PATTERNS = tuple(PatternKind)
+
+
+def encoder_ids(model_schema: str) -> dict[str, str]:
+    if model_schema == "ddz-candidate-mlp-v1":
+        return {"observation": ENCODER_VERSION, "action": ACTION_ENCODER_VERSION}
+    if model_schema == "ddz-candidate-mlp-v2":
+        return {"observation": ENCODER_VERSION_V2, "action": ACTION_ENCODER_VERSION_V2}
+    raise ValueError("unsupported model schema")
 
 
 def observation_size() -> int:
@@ -26,6 +37,17 @@ def action_size() -> int:
     # kind(6), rank counts(15), pattern kind(14), main rank(15),
     # chain length(1).
     return len(KINDS) + 15 + len(PATTERNS) + 15 + 1
+
+
+def observation_size_v2() -> int:
+    # v1 + last pattern (including no lead), rank, chain, teammate lead,
+    # unseen rank counts, call and rob counts in the current deal.
+    return observation_size() + len(PATTERNS) + 1 + 1 + 1 + 1 + 15 + 2
+
+
+def action_size_v2() -> int:
+    # v1 + resulting hand rank counts + eight action-result features.
+    return action_size() + 15 + 8
 
 
 def _onehot(idx: int | None, size: int) -> list[float]:
@@ -78,4 +100,47 @@ def encode_action(action: Action) -> tuple[float, ...]:
     values.append(min(chain, 12) / 12)
     if len(values) != action_size():
         raise AssertionError("action length mismatch")
+    return tuple(values)
+
+
+def encode_observation_v2(obs: PlayerObservation) -> tuple[float, ...]:
+    values = list(encode_observation(obs))
+    pattern = obs.last_play
+    values.extend(_onehot(PATTERNS.index(pattern.kind) if pattern else None,
+                          len(PATTERNS) + 1))
+    values.append(pattern.main_rank / 14 if pattern else 0.0)
+    values.append(pattern.chain_length / 12 if pattern else 0.0)
+    teammate_leads = (obs.landlord is not None and obs.seat != obs.landlord and
+                      obs.last_play_seat is not None and
+                      obs.last_play_seat != obs.landlord)
+    values.append(float(teammate_leads))
+    played = [sum(seat[r] for seat in obs.played_counts_by_seat) for r in range(15)]
+    values.extend(max(0, total - own - used) / 4
+                  for total, own, used in zip(FULL_COUNTS, obs.own_counts, played))
+    values.extend((min(obs.call_count + int(obs.caller is not None), 3) / 3,
+                   min(obs.rob_count, 3) / 3))
+    if len(values) != observation_size_v2() or not all(0 <= x <= 1 for x in values):
+        raise AssertionError("v2 observation feature mismatch")
+    return tuple(values)
+
+
+def encode_action_v2(obs: PlayerObservation, action: Action) -> tuple[float, ...]:
+    values = list(encode_action(action))
+    after = tuple(have - used for have, used in zip(obs.own_counts, action.counts))
+    if any(left < 0 for left in after):
+        raise ValueError("candidate exceeds observed hand")
+    values.extend(left / 4 for left in after)
+    values.extend((sum(left == 1 for left in after) / 15,
+                   sum(left == 2 for left in after) / 15,
+                   sum(left == 3 for left in after) / 15,
+                   sum(left == 4 for left in after) / 15,
+                   sum(have >= 2 and used > 0 and left == 1
+                       for have, used, left in zip(obs.own_counts, action.counts, after)) / 15,
+                   sum(action.counts) / 20,
+                   float(action.kind == ActionKind.PLAY and not any(after)),
+                   (max(0, action.pattern_key[1] - obs.last_play.main_rank) / 14
+                    if action.pattern_key and obs.last_play and
+                    action.pattern_key[0] == obs.last_play.kind.value else 0.0)))
+    if len(values) != action_size_v2() or not all(0 <= x <= 1 for x in values):
+        raise AssertionError("v2 action feature mismatch")
     return tuple(values)

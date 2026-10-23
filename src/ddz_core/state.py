@@ -86,3 +86,5 @@ class PlayerObservation:
     deal_index: int
     step_index: int
     winner: Team | None
+    call_count: int = 0
+    rob_count: int = 0

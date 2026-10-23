@@ -22,6 +22,7 @@ class NewGame(BaseModel):
     model_ids: tuple[str, str, str]
     seed: int | None = Field(None, ge=0, le=2**32 - 1)
     delay: float = Field(.7, ge=.05, le=3.0)
+    random_bidding: bool = False
 
 
 class Control(BaseModel):
@@ -187,7 +188,8 @@ def create_app(registry_dir: str | Path = 'runs/registry',
     def create(data: NewGame):
         try:
             return app.state.manager.create(data.model_ids, seed=data.seed,
-                                            delay=data.delay).snapshot()
+                                            delay=data.delay,
+                                            random_bidding=data.random_bidding).snapshot()
         except (ValueError, KeyError, OSError, RuntimeError) as exc:
             logger.bind(component='web').warning('game_create_rejected: {}', type(exc).__name__)
             raise HTTPException(400, detail=str(exc)) from exc

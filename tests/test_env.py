@@ -1,12 +1,16 @@
 import random
+from dataclasses import replace
 
 import pytest
 
-from ddz_core.actions import ActionKind
+from ddz_core.actions import Action, ActionKind, Pattern, PatternKind
+from ddz_core.cards import counts_from_ranks
 from ddz_core.engine import IllegalAction, replay
 from ddz_core.state import Phase
 from ddz_env import DDZEnv, encode_action, encode_observation, observation_size, action_size
-from ddz_env.baselines import play_episode, random_action_index
+from ddz_env.encoding import (encode_action_v2, encode_observation_v2,
+                              action_size_v2, observation_size_v2)
+from ddz_env.baselines import play_episode, random_action_index, reasonable_action_index
 from ddz_env.catalogue import action_catalogue, global_action_id, global_legal_ids
 
 
@@ -23,6 +27,35 @@ def test_encoder_fixed_sizes_and_bounded_features():
         vector = encode_action(action)
         assert len(vector) == action_size()
         assert all(0 <= v <= 1 for v in vector)
+
+
+def test_v2_resulting_hand_and_public_state_features():
+    obs = DDZEnv(2026).current_observation()
+    state = encode_observation_v2(obs)
+    assert len(state) == observation_size_v2() == 160
+    assert all(0 <= value <= 1 for value in state)
+    action = obs.legal_actions[0]
+    feature = encode_action_v2(obs, action)
+    assert len(feature) == action_size_v2() == 74
+    assert all(0 <= value <= 1 for value in feature)
+    assert feature[-8:-4] == tuple(sum(count == amount for count in obs.own_counts) / 15
+                                    for amount in (1, 2, 3, 4))
+
+
+def test_bounded_policy_view_and_digest_free_step_keep_replay_identical():
+    env = DDZEnv(2026)
+    rng = random.Random(2026)
+    for _ in range(1200):
+        if env.done:
+            break
+        full = env.current_observation()
+        bounded = env.current_observation(event_limit=16)
+        assert encode_observation(full) == encode_observation(bounded)
+        assert encode_observation_v2(full) == encode_observation_v2(bounded)
+        transition = env.step(random_action_index(env, rng), include_digest=False)
+        assert transition.state_digest is None
+    assert env.done
+    assert replay(env.export_replay()).state_digest() == env.engine.state_digest()
 
 
 def test_no_private_cards_before_landlord_assignment():
@@ -102,6 +135,24 @@ def test_many_complete_episodes():
         assert env.done and steps < 1200
         assert env.engine.state.winner is not None or env.engine.state.truncated
         env.engine.assert_invariants()
+
+
+def test_reasonable_random_finishes_and_respects_teammate_lead():
+    template = DDZEnv(2026).current_observation()
+    one = counts_from_ranks('3')
+    single = Action.play(one, Pattern(PatternKind.SINGLE, 0, 1, 1))
+    pass_action = Action.simple(ActionKind.PASS)
+    finishing = replace(template, phase=Phase.PLAY, seat=1, landlord=0,
+                        own_counts=one, remaining_counts=(5, 1, 4),
+                        last_play_seat=0, legal_actions=(pass_action, single))
+    assert reasonable_action_index(finishing, random.Random(1)) == 1
+
+    pair_counts = counts_from_ranks('3', '3')
+    pair = Action.play(pair_counts, Pattern(PatternKind.PAIR, 0, 1, 2))
+    teammate = replace(finishing, own_counts=counts_from_ranks('3', '3', '4'),
+                       remaining_counts=(5, 3, 4), last_play_seat=2,
+                       legal_actions=(pair, pass_action))
+    assert reasonable_action_index(teammate, random.Random(1)) == 1
 
 
 def test_action_mask_only_acting_player():

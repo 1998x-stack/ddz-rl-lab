@@ -188,10 +188,14 @@ class GameEngine:
         self.assert_invariants()
         return self.state.events[-1]
 
-    def observe(self, seat: int) -> PlayerObservation:
+    def observe(self, seat: int, *, event_limit: int | None = None) -> PlayerObservation:
         if seat not in (0, 1, 2):
             raise ValueError("seat must be 0, 1, or 2")
+        if event_limit is not None and (type(event_limit) is not int or event_limit < 0):
+            raise ValueError("event_limit must be a nonnegative integer")
         s = self.state
+        events = (s.events if event_limit is None else
+                  s.events[-event_limit:] if event_limit else ())
         return PlayerObservation(
             seat=seat, phase=s.phase, current_seat=s.current_seat,
             own_physical_cards=tuple(s.hands[seat]),
@@ -205,11 +209,11 @@ class GameEngine:
             last_play_counts=s.last_play_counts, last_play_seat=s.last_play_seat,
             public_events=tuple(
                 GameEvent(ev.sequence, ev.kind, ev.actor, copy.deepcopy(ev.public))
-                for ev in s.events
+                for ev in events
             ),
             legal_actions=self.legal_actions() if s.current_seat == seat else (),
             deal_index=s.deal_index, step_index=s.step_index,
-            winner=s.winner,
+            winner=s.winner, call_count=s.call_count, rob_count=s.rob_count,
         )
 
     def assert_invariants(self) -> None:

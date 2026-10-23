@@ -20,7 +20,7 @@ from loguru import logger
 
 from ddz_core.cards import cards_to_counts
 from ddz_core.state import Phase
-from ddz_env.baselines import random_action_index
+from ddz_env.baselines import random_action_index, reasonable_action_index
 from ddz_env.environment import DDZEnv
 from ddz_models.network import NetworkSpec
 from ddz_models.policy import RoleBundle
@@ -47,12 +47,13 @@ def _atomic_json(path: Path, value: dict[str, Any]) -> None:
 
 def public_snapshot(env: DDZEnv, game_id: str, policies: tuple[str, str, str],
                     *, running: bool, delay: float, status: str,
-                    error: str | None = None) -> dict[str, Any]:
+                    error: str | None = None, random_bidding: bool = False) -> dict[str, Any]:
     """Never serialize GameState.hands, unrevealed bottom, or policy inputs."""
     s = env.engine.state
     return {
         "type": "snapshot", "game_id": game_id, "phase": s.phase.value,
         "status": status, "running": running, "delay": delay,
+        "random_bidding": random_bidding,
         "model_ids": list(policies), "seed": env.engine.seed if env.done else None,
         "sequence": s.events[-1].sequence if s.events else 0,
         "step_index": s.step_index, "acting_seat": s.current_seat,
@@ -73,6 +74,7 @@ class ArenaGame:
     policies: tuple[RoleBundle | None, RoleBundle | None, RoleBundle | None]
     rngs: tuple[random.Random, random.Random, random.Random]
     replay_dir: Path
+    random_bidding: bool = False
     delay: float = 0.7
     running: bool = False
     status: str = "paused"
@@ -84,7 +86,8 @@ class ArenaGame:
     def snapshot(self) -> dict:
         return public_snapshot(self.env, self.game_id, self.policy_ids,
                                running=self.running, delay=self.delay,
-                               status=self.status, error=self.error)
+                               status=self.status, error=self.error,
+                               random_bidding=self.random_bidding)
 
     def subscribe(self) -> asyncio.Queue:
         queue: asyncio.Queue = asyncio.Queue(maxsize=4)
@@ -117,9 +120,15 @@ class ArenaGame:
             seat = self.env.acting_seat
             assert seat is not None
             policy = self.policies[seat]
-            obs = self.env.current_observation()
+            obs = self.env.current_observation(event_limit=16)
             try:
-                if policy is None:
+                if self.random_bidding and obs.phase in (Phase.CALL, Phase.ROB):
+                    idx = random_action_index(self.env, self.rngs[seat])
+                    role = "@random-bid"
+                elif self.policy_ids[seat] == "@reasonable":
+                    idx = reasonable_action_index(obs, self.rngs[seat])
+                    role = "@reasonable"
+                elif policy is None:
                     idx = random_action_index(self.env, self.rngs[seat])
                     role = "@random"
                 else:
@@ -127,7 +136,7 @@ class ArenaGame:
                     decision = await asyncio.to_thread(policy.act, obs, self.rngs[seat], 0.0)
                     idx = decision.local_index
                     role = decision.role
-                event = self.env.step(idx)
+                event = self.env.step(idx, include_digest=False)
             except Exception as exc:
                 self.running = False
                 self.status = "error"
@@ -142,6 +151,7 @@ class ArenaGame:
                 self.status = "finished" if event.terminated else "truncated"
                 replay = self.env.export_replay()
                 replay["model_ids"] = list(self.policy_ids)
+                replay["random_bidding"] = self.random_bidding
                 _atomic_json(self.replay_dir / f"{self.game_id}.json", replay)
                 logger.bind(game_id=self.game_id, outcome=replay["winner"]).info("arena_game_ended")
             self._publish()
@@ -209,7 +219,7 @@ class ArenaManager:
                 "baseline_enabled": self.allow_baseline}
 
     def _load_model(self, model_id: str) -> RoleBundle | None:
-        if model_id == "@random":
+        if model_id in {"@random", "@reasonable"}:
             if not self.allow_baseline:
                 raise ValueError("baseline mode is disabled; register a trained inference bundle")
             return None
@@ -217,19 +227,21 @@ class ArenaManager:
         key = model_id, record["sha256"]
         if key not in self._models:
             path, _ = self.registry._model_files(model_id)
-            bundle = RoleBundle(NetworkSpec(hidden=int(record["spec"]["hidden"])))
+            bundle = RoleBundle(NetworkSpec.from_dict(record["spec"]))
             load_checkpoint(path, bundle)
             self._models[key] = bundle
         return self._models[key]
 
     def create(self, ids: tuple[str, str, str], *, seed: int | None = None,
-               delay: float = .7) -> ArenaGame:
+               delay: float = .7, random_bidding: bool = False) -> ArenaGame:
         if len(self.games) >= self.max_sessions:
             raise ValueError("arena is full; restart server to clear completed sessions")
         if len(ids) != 3 or not all(isinstance(x, str) for x in ids):
             raise ValueError("exactly three model IDs required")
         if not MIN_DELAY <= delay <= MAX_DELAY:
             raise ValueError("invalid playback speed")
+        if type(random_bidding) is not bool:
+            raise ValueError("random_bidding must be a boolean")
         if seed is None:
             seed = secrets.randbits(31)
         if type(seed) is not int or not 0 <= seed < 2**32:
@@ -238,7 +250,7 @@ class ArenaManager:
         game_id = secrets.token_hex(12)
         game = ArenaGame(game_id, DDZEnv(seed), ids, policies,
                          tuple(random.Random(seed + i * 1009) for i in range(3)),
-                         self.replay_dir, delay)
+                         self.replay_dir, random_bidding=random_bidding, delay=delay)
         self.games[game_id] = game
         logger.bind(game_id=game_id, models=ids, seed=seed).info("arena_created")
         return game
