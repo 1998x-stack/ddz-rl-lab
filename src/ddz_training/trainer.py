@@ -126,6 +126,7 @@ class DMCTrainer:
 
     def train(self) -> dict:
         buffer: list[Experience] = []
+        evaluated_at: int | None = None
         for _ in range(self.config.episodes):
             # Seed each episode by global index to make resumed experience traceable.
             index = self.episodes_seen
@@ -141,9 +142,11 @@ class DMCTrainer:
                 buffer.clear()
             if self.episodes_seen % self.config.eval_every == 0:
                 self._evaluate_and_save()
+                evaluated_at = self.episodes_seen
         if buffer:
             self.learn(buffer)
-        self._evaluate_and_save()
+        if buffer or evaluated_at != self.episodes_seen:
+            self._evaluate_and_save()
         return self.latest_metrics
 
     def _evaluate_and_save(self) -> None:

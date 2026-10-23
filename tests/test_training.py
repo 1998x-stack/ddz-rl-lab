@@ -65,6 +65,7 @@ def test_training_checkpoint_evaluate_and_resume(tmp_path):
     data = load_checkpoint(best, rebuilt)
     assert "optimizer" not in data
     eval_metrics = evaluate_bundle(rebuilt, games=2, seed=250)
+    assert eval_metrics == evaluate_bundle(rebuilt, games=2, seed=250)
     assert eval_metrics["landlord_games"] <= 2
     assert eval_metrics["farmer_games"] <= 2
     resumed = DMCTrainer(replace(cfg, episodes=1))

@@ -70,7 +70,8 @@ uses `weights_only=True`. Load only vetted, trusted model artifacts.
 At each `eval_every` interval, the candidate is evaluated on the *same seeded*
 deals as (1) learned landlord against frozen random farmers and (2) learned
 farmers against frozen random landlord. Bidding in both cases uses seeded random
-legal actions. Report both win rates separately and their balanced mean. The
+legal actions. The frozen-opponent RNG and inference-policy RNG are isolated
+so policy exploration cannot accidentally consume the baseline random stream. Report both win rates separately and their balanced mean. The
 `best.weights.pt` bundle is updated only when this **validation** score improves;
 `latest.pt` always stores a resumable training checkpoint. This tiny fixed
 validation set can overfit through repeated selection: report a separate

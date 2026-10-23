@@ -20,6 +20,7 @@ def evaluate_bundle(bundle: RoleBundle, seed: int = 34000, games: int = 20,
         for side in ("landlord", "farmers"):
             env = DDZEnv(seed + j)
             rng = random.Random((seed + j) * 17 + 937)
+            policy_rng = random.Random((seed + j) * 31 + 991)
             for _ in range(max_steps):
                 if env.done:
                     break
@@ -27,7 +28,7 @@ def evaluate_bundle(bundle: RoleBundle, seed: int = 34000, games: int = 20,
                 if obs.phase != Phase.PLAY:
                     action_id = random_action_index(env, rng)
                 elif (obs.seat == obs.landlord) == (side == "landlord"):
-                    action_id = bundle.act(obs, rng, 0.0).local_index
+                    action_id = bundle.act(obs, policy_rng, 0.0).local_index
                 else:
                     action_id = random_action_index(env, rng)
                 env.step(action_id)
