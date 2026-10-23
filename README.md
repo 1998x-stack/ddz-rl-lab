@@ -483,3 +483,8 @@ Only independently reviewed feedback enters optional pairwise training. The
 new terminal reward target contract intentionally prevents resuming legacy
 training checkpoints; old inference-only bundles remain schema-aware.
 Consult [the source-backed design and release gates](docs/POLICY_TRAINING_INTEGRITY.md).
+
+Optional matched-bid teacher for **new v2 training experiments only**:
+`ddz-train train --model-schema ddz-candidate-mlp-v2 --bid-counterfactual-deals 2 --episodes 200 --output runs/bid-cf-v2`.
+It is simulator-supervised initial CALL training, not a proof of optimal bidding;
+keep held-out paired evaluations before registering/promoting the checkpoint.

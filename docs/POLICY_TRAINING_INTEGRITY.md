@@ -37,3 +37,33 @@
   reported. The command rejects nonmatching decision signatures.
 - Review CI jobs and tournament results before moving main. Statistical gains
   have NOT been established by implementing these changes.
+
+## Optional paired-auction teacher (P1 experimental)
+
+`ddz-train train --model-schema ddz-candidate-mlp-v2 --bid-counterfactual-deals 2
+--episodes 200 --batch-episodes 8 --output runs/bid-counterfactual-v2`
+
+For each actor batch, the trainer uses up to two disjoint initial-deal seeds.
+The first bidder's CALL and DECLINE outcomes are estimated by two complete
+rollouts against **the same seeded frozen heuristic opponents**. The learner
+receives only the initial bidder's own observation and the two encoded legal
+actions. The hidden deck is used only to produce simulator teacher outcomes.
+This applies to initial CALL decisions; ROB requires a separate future
+counterfactual coverage expansion. Models must be measured on held-out seeds
+because heuristic-teacher bias can make the performance worse.
+
+The old DMC target contract uses per-role magnitudes; the new contract
+normalizes terminal team outcomes to ±1 and adds narrow, rule-certified
+immediate-finish ranking. Abandoned auctions still incur a configurable cost:
+`--redeal-penalty`. Call-rate calibration should be compared by visible
+hand-strength bins and on matched complete games. It is **not established** by
+merely running the new training command.
+
+## Release policy
+
+- Core-only Python 3.10/3.12/3.13 and full torch/web Python 3.12 CI must pass.
+- No action outside authoritative legal candidates may enter a training rollout.
+- No previous unreviewed human suggestion is treated as a training preference.
+- Never promote a changed policy hash without new, independent seeded evaluation.
+- Passing legal replay tests and smoke training does NOT imply competitive
+  improvement; archive all paired reports with their confidence intervals.
