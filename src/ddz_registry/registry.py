@@ -17,6 +17,7 @@ from typing import Iterator
 from loguru import logger
 
 from ddz_env.encoding import encoder_ids
+from ddz_quality.policy_identity import policy_fingerprint
 from ddz_models.network import NetworkSpec
 from ddz_models.policy import RoleBundle
 from ddz_training.checkpoints import SCHEMA, load_checkpoint
@@ -131,7 +132,10 @@ class ModelRegistry:
             finally:
                 if temporary.exists():
                     shutil.rmtree(temporary)
+            fingerprint = policy_fingerprint(metadata['sha256'], spec_data)
             idx['models'][model_id] = {'sha256': metadata['sha256'],
+                                       'policy_fingerprint': fingerprint['sha256'],
+                                       'policy_manifest': fingerprint['manifest'],
                                        'episodes_seen': metadata['episodes_seen'],
                                        'updates': metadata['updates'],
                                        'encoder_version': metadata['encoders']['observation'],
@@ -158,6 +162,10 @@ class ModelRegistry:
         spec = NetworkSpec.from_dict(meta['spec'])
         if meta.get('encoders') != encoder_ids(spec.schema):
             raise ValueError('registry encoder mismatch')
+        if record.get('policy_fingerprint') is not None:
+            actual = policy_fingerprint(record['sha256'], meta['spec'])
+            if actual['sha256'] != record['policy_fingerprint']:
+                raise ValueError('inference policy source or rules changed; re-evaluation required')
         if load_weights:
             load_checkpoint(path, RoleBundle(spec))
         return dict(record)
