@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Iterator
 from loguru import logger
 
-from ddz_env.encoding import ENCODER_VERSION, ACTION_ENCODER_VERSION
+from ddz_env.encoding import encoder_ids
 from ddz_models.network import NetworkSpec
 from ddz_models.policy import RoleBundle
 from ddz_training.checkpoints import SCHEMA, load_checkpoint
@@ -103,14 +103,13 @@ class ModelRegistry:
             raise ValueError('registry requires an inference-only checkpoint')
         if metadata.get('checkpoint') != source.name or metadata.get('sha256') != _sha(source):
             raise ValueError('source checkpoint integrity error')
-        if metadata.get('encoders') != {'observation': ENCODER_VERSION,
-                                        'action': ACTION_ENCODER_VERSION}:
-            raise ValueError('incompatible encoders')
         spec_data = metadata.get('spec', {})
-        spec = NetworkSpec(hidden=int(spec_data['hidden']))
+        spec = NetworkSpec.from_dict(spec_data)
         if spec_data != {'state_dim': spec.state_dim, 'action_dim': spec.action_dim,
                          'hidden': spec.hidden, 'schema': spec.schema}:
             raise ValueError('unsupported network specification')
+        if metadata.get('encoders') != encoder_ids(spec.schema):
+            raise ValueError('incompatible encoders')
         # Safe weights_only load; any failure aborts registration before mutation.
         load_checkpoint(source, RoleBundle(spec, device))
         output, sidecar = self._model_files(model_id)
@@ -156,10 +155,11 @@ class ModelRegistry:
         meta = json.loads(meta_path.read_text('utf-8'))
         if not meta.get('inference_only') or meta.get('sha256') != record['sha256'] or _sha(path) != record['sha256']:
             raise ValueError('registry checkpoint hash mismatch')
-        if meta.get('encoders', {}).get('observation') != ENCODER_VERSION or meta.get('encoders', {}).get('action') != ACTION_ENCODER_VERSION:
+        spec = NetworkSpec.from_dict(meta['spec'])
+        if meta.get('encoders') != encoder_ids(spec.schema):
             raise ValueError('registry encoder mismatch')
         if load_weights:
-            load_checkpoint(path, RoleBundle(NetworkSpec(hidden=int(meta['spec']['hidden']))))
+            load_checkpoint(path, RoleBundle(spec))
         return dict(record)
 
     def promote(self, model_id: str, *, report: dict) -> dict:

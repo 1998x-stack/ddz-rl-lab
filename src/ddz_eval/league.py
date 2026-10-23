@@ -21,7 +21,7 @@ def load_frozen(path: str | Path, device: str = "cpu") -> RoleBundle:
     import json
     p = Path(path)
     metadata = json.loads(p.with_suffix(p.suffix + ".json").read_text("utf-8"))
-    bundle = RoleBundle(NetworkSpec(hidden=int(metadata["spec"]["hidden"])), device)
+    bundle = RoleBundle(NetworkSpec.from_dict(metadata["spec"]), device)
     load_checkpoint(p, bundle)
     return bundle
 
@@ -51,7 +51,7 @@ def compare_bundles(candidate: RoleBundle, opponent: RoleBundle | None,
             for _ in range(max_steps):
                 if env.done:
                     break
-                obs = env.current_observation()
+                obs = env.current_observation(event_limit=16)
                 if obs.phase != Phase.PLAY:
                     action = random_action_index(env, bidding_rng)
                 else:
@@ -62,7 +62,7 @@ def compare_bundles(candidate: RoleBundle, opponent: RoleBundle | None,
                         action = random_action_index(env, bidding_rng)
                     else:
                         action = opponent.act(obs, rng_model, 0.).local_index
-                env.step(action)
+                env.step(action, include_digest=False)
             if not env.done:
                 raise RuntimeError(f"tournament step limit exceeded deal={seed+offset}")
             if env.engine.state.truncated:

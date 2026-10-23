@@ -39,6 +39,19 @@ def test_throughput_metrics():
     assert metrics['truncated'] == 0
 
 
+def test_redeal_bid_targets_do_not_inherit_later_deal_result():
+    from ddz_training.actors import label_samples
+    data = [('bid', (0.,), (1.,), 0, 0),
+            ('bid', (1.,), (1.,), 0, 1),
+            ('landlord', (1.,), (1.,), 0, 1)]
+    values = label_samples(data, final_deal=1, truncated=False,
+                           reward=(2., -1., -1.), redeal_penalty=1.)
+    assert [x.return_value for x in values] == [-1., 2., 2.]
+    aborted = label_samples(data[:2], final_deal=1, truncated=True,
+                            reward=(0., 0., 0.), redeal_penalty=1.)
+    assert [x.return_value for x in aborted] == [-1., -1.]
+
+
 def test_wilson_and_tournament_deterministic():
     assert wilson(0, 0) == (0., 1.)
     assert wilson(5, 10)[0] < .5 < wilson(5, 10)[1]

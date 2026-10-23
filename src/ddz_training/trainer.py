@@ -7,6 +7,7 @@ workers never receive private information outside their game ENV.
 from __future__ import annotations
 from dataclasses import asdict, dataclass
 from pathlib import Path
+import math
 import random
 import time
 import torch
@@ -30,6 +31,7 @@ class TrainConfig:
     hidden: int = 128
     lr: float = .0003
     epsilon: float = .15
+    bid_epsilon: float = .7
     max_steps: int = 1200
     device: str = "cpu"
     output: str = "runs/dmc-v5"
@@ -38,10 +40,13 @@ class TrainConfig:
     replay_sample_size: int = 2048
     updates_per_batch: int = 1
     history_capacity: int = 6
+    history_keep_top: int = 0
     history_probability: float = .35
     history_keep_top: int = 0
     early_stop_patience_evals: int = 0
     min_score_improvement: float = 0.0
+    redeal_penalty: float = 1.0
+    model_schema: str = "ddz-candidate-mlp-v1"
 
     def __post_init__(self) -> None:
         positives = ("episodes", "batch_episodes", "eval_games", "eval_every", "hidden",
@@ -49,15 +54,22 @@ class TrainConfig:
                      "updates_per_batch")
         if any(getattr(self, x) < 1 for x in positives):
             raise ValueError("positive training counts required")
-        if self.lr <= 0 or not 0 <= self.epsilon <= 1 or self.history_capacity < 0:
+        if (self.lr <= 0 or not 0 <= self.epsilon <= 1 or
+                not 0 <= self.bid_epsilon <= 1 or self.history_capacity < 0):
             raise ValueError("invalid learning or history configuration")
         if (type(self.early_stop_patience_evals) is not int or
                 self.early_stop_patience_evals < 0 or self.min_score_improvement < 0):
             raise ValueError('invalid early stopping configuration')
         if type(self.history_keep_top) is not int or self.history_keep_top < 0 or self.history_keep_top > 100:
             raise ValueError("history_keep_top must be 0..100")
+        if type(self.history_keep_top) is not int or not 0 <= self.history_keep_top <= 100:
+            raise ValueError("history_keep_top must be 0..100")
         if not 0 <= self.history_probability <= 1:
             raise ValueError("history_probability must be in [0,1]")
+        if not math.isfinite(self.redeal_penalty) or not 0 <= self.redeal_penalty <= 2:
+            raise ValueError("redeal_penalty must be in [0,2]")
+        if self.model_schema not in {"ddz-candidate-mlp-v1", "ddz-candidate-mlp-v2"}:
+            raise ValueError("unsupported model_schema")
 
 
 @dataclass(frozen=True)
@@ -75,7 +87,9 @@ class DMCTrainer:
         torch.manual_seed(config.seed)
         torch.set_num_threads(1)
         self.rng = random.Random(config.seed)
-        self.bundle = RoleBundle(NetworkSpec(hidden=config.hidden), config.device)
+        spec = (NetworkSpec.v2(config.hidden) if config.model_schema == "ddz-candidate-mlp-v2"
+                else NetworkSpec(hidden=config.hidden))
+        self.bundle = RoleBundle(spec, config.device)
         self.optimizers = {role: torch.optim.Adam(net.parameters(), lr=config.lr)
                            for role, net in self.bundle.models.items()}
         self.replay = ReplayBuffer(config.replay_capacity)
@@ -93,7 +107,7 @@ class DMCTrainer:
         paths = sorted((self.output / "history").glob("step-*.weights.pt"))[-self.config.history_capacity:] if self.config.history_capacity else []
         result = []
         for path in paths:
-            frozen = RoleBundle(NetworkSpec(hidden=self.config.hidden), "cpu")
+            frozen = RoleBundle(self.bundle.spec, "cpu")
             load_checkpoint(path, frozen)
             result.append((path.stem, frozen.state_dict()))
         return result
@@ -111,8 +125,10 @@ class DMCTrainer:
         historical = self._frozen_history()
         return collect_batch(seeds, spec=self.bundle.spec, weights=weights,
                              historical=historical, epsilon=self.config.epsilon,
+                             bid_epsilon=self.config.bid_epsilon,
                              max_steps=self.config.max_steps,
                              historical_probability=self.config.history_probability,
+                             redeal_penalty=self.config.redeal_penalty,
                              workers=self.config.actor_workers)
 
     def learn(self, samples: list[Experience]) -> dict[str, float]:
@@ -144,10 +160,15 @@ class DMCTrainer:
     def resume(self, path: str | Path) -> None:
         payload = load_checkpoint(Path(path), self.bundle, self.optimizers)
         saved = payload["config"]
-        for field in ("seed", "hidden", "lr", "epsilon", "batch_episodes", "max_steps",
+        if ("redeal_penalty" not in saved or "model_schema" not in saved or
+                "bid_epsilon" not in saved):
+            raise ValueError("cannot resume legacy checkpoint with deal-aware bid targets")
+        for field in ("seed", "hidden", "lr", "epsilon", "bid_epsilon",
+                      "batch_episodes", "max_steps",
                       "actor_workers", "replay_capacity", "replay_sample_size",
                       "updates_per_batch", "history_capacity", "history_probability",
-                      "early_stop_patience_evals", "min_score_improvement", "history_keep_top"):
+                      "early_stop_patience_evals", "min_score_improvement",
+                      "redeal_penalty", "model_schema", "history_keep_top"):
             if saved.get(field, getattr(self.config, field)) != getattr(self.config, field):
                 raise ValueError(f"cannot resume with changed training config: {field}")
         self.episodes_seen = int(payload["episodes_seen"])

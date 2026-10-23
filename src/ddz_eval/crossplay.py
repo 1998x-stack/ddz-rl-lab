@@ -27,7 +27,7 @@ def load_lineup(registry: ModelRegistry, mapping: Mapping[str, str]) -> dict[str
     for role, model_id in mapping.items():
         record = registry.verify(model_id, load_weights=False)
         path, _ = registry._model_files(model_id)
-        bundle = RoleBundle(NetworkSpec(hidden=int(record['spec']['hidden'])))
+        bundle = RoleBundle(NetworkSpec.from_dict(record['spec']))
         load_checkpoint(path, bundle)
         bundles[role] = bundle
     return bundles
@@ -51,13 +51,13 @@ def run_crossplay(lineups: Mapping[str, Mapping[str, RoleBundle]], *, seed: int,
             for _ in range(max_steps):
                 if env.done:
                     break
-                obs = env.current_observation()
+                obs = env.current_observation(event_limit=16)
                 if obs.phase != Phase.PLAY:
                     index = random_action_index(env, bidding_rng)
                 else:
                     role = role_for_observation(obs)
                     index = roles[role].act(obs, decision_rng, 0.0).local_index
-                env.step(index)
+                env.step(index, include_digest=False)
             if not env.done or env.engine.state.truncated:
                 rows.append({'deal_seed': deal_seed, 'outcome': 'truncated'})
                 wins['truncated'] += 1

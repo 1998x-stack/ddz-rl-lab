@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import torch
 from torch import nn
-from ddz_env.encoding import action_size, observation_size
+from ddz_env.encoding import action_size, observation_size, action_size_v2, observation_size_v2
 
 
 @dataclass(frozen=True)
@@ -14,8 +14,23 @@ class NetworkSpec:
     schema: str = "ddz-candidate-mlp-v1"
 
     def __post_init__(self) -> None:
-        if self.hidden <= 0 or self.state_dim != observation_size() or self.action_dim != action_size():
+        expected = {
+            "ddz-candidate-mlp-v1": (observation_size(), action_size()),
+            "ddz-candidate-mlp-v2": (observation_size_v2(), action_size_v2()),
+        }
+        if (self.hidden <= 0 or self.schema not in expected or
+                (self.state_dim, self.action_dim) != expected[self.schema]):
             raise ValueError("invalid or incompatible network specification")
+
+    @classmethod
+    def v2(cls, hidden: int = 128) -> "NetworkSpec":
+        return cls(observation_size_v2(), action_size_v2(), hidden,
+                   "ddz-candidate-mlp-v2")
+
+    @classmethod
+    def from_dict(cls, value: dict) -> "NetworkSpec":
+        return cls(state_dim=int(value["state_dim"]), action_dim=int(value["action_dim"]),
+                   hidden=int(value["hidden"]), schema=str(value["schema"]))
 
 
 class CandidateQNetwork(nn.Module):

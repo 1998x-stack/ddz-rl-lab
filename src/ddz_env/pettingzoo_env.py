@@ -80,7 +80,7 @@ class PettingZooDDZEnv(AECEnv):
     def observe(self, agent: str) -> dict[str, np.ndarray]:
         self._check_agent(agent)
         seat = int(agent.split("_")[1])
-        own_view = self._core.observe(seat)
+        own_view = self._core.observe(seat, event_limit=16)
         vector = np.asarray(encode_observation(own_view), dtype=np.float32)
         mask = np.zeros(len(action_catalogue()), dtype=np.int8)
         if (agent in self.agents and not self.terminations.get(agent, False)
@@ -106,7 +106,7 @@ class PettingZooDDZEnv(AECEnv):
             raise ValueError("global action not currently legal")
         local_index = local_ids.index(int(action))
         self._cumulative_rewards[current] = 0.0
-        transition = self._core.step(local_index)
+        transition = self._core.step(local_index, include_digest=False)
         self.rewards = {f"seat_{i}": float(x) for i, x in enumerate(transition.rewards)}
         if transition.terminated or transition.truncated:
             self.terminations = {p: transition.terminated for p in self.agents}

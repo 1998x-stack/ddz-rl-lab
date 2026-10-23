@@ -13,7 +13,7 @@ import tempfile
 import torch
 from ddz_models.network import NetworkSpec
 from ddz_models.policy import RoleBundle, ROLES
-from ddz_env.encoding import ENCODER_VERSION, ACTION_ENCODER_VERSION
+from ddz_env.encoding import encoder_ids
 
 SCHEMA = "ddz-training-checkpoint-v1"
 
@@ -48,7 +48,7 @@ def save_checkpoint(path: Path, bundle: RoleBundle, optimizers: dict,
         "schema": SCHEMA,
         "spec": {"state_dim": bundle.spec.state_dim, "action_dim": bundle.spec.action_dim,
                  "hidden": bundle.spec.hidden, "schema": bundle.spec.schema},
-        "encoders": {"observation": ENCODER_VERSION, "action": ACTION_ENCODER_VERSION},
+        "encoders": encoder_ids(bundle.spec.schema),
         "model": bundle.state_dict(), "episodes_seen": episodes_seen,
         "updates": updates, "metrics": metrics, "config": config,
     }
@@ -81,9 +81,7 @@ def load_checkpoint(path: Path, bundle: RoleBundle, optimizers: dict | None = No
     if payload["schema"] != SCHEMA or payload["spec"] != {
         "state_dim": bundle.spec.state_dim, "action_dim": bundle.spec.action_dim,
         "hidden": bundle.spec.hidden, "schema": bundle.spec.schema,
-    } or payload["encoders"] != {
-        "observation": ENCODER_VERSION, "action": ACTION_ENCODER_VERSION,
-    }:
+    } or payload["encoders"] != encoder_ids(bundle.spec.schema):
         raise ValueError("checkpoint incompatible with runtime encoders or network")
     bundle.load_state_dict(payload["model"])
     if optimizers is not None:

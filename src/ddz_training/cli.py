@@ -25,6 +25,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--hidden", type=int, default=128)
     parser.add_argument("--lr", type=float, default=0.0003)
     parser.add_argument("--epsilon", type=float, default=0.15)
+    parser.add_argument("--bid-epsilon", type=float, default=0.7)
     parser.add_argument("--max-steps", type=int, default=1200)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--output", default="runs/dmc-v4")
@@ -36,6 +37,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--updates-per-batch", type=int, default=1)
     parser.add_argument("--history-capacity", type=int, default=6)
     parser.add_argument("--history-probability", type=float, default=.35)
+    parser.add_argument("--redeal-penalty", type=float, default=1.0)
+    parser.add_argument("--model-schema", choices=["ddz-candidate-mlp-v1", "ddz-candidate-mlp-v2"],
+                        default="ddz-candidate-mlp-v1")
     parser.add_argument("--history-keep-top", type=int, default=0)
     parser.add_argument("--early-stop-patience-evals", type=int, default=0)
     parser.add_argument("--min-score-improvement", type=float, default=0.0)
@@ -50,7 +54,8 @@ def main() -> None:
         config = TrainConfig(episodes=args.episodes, batch_episodes=args.batch_episodes,
                              eval_games=args.eval_games, eval_every=args.eval_every,
                              seed=args.seed, hidden=args.hidden, lr=args.lr,
-                             epsilon=args.epsilon, max_steps=args.max_steps,
+                             epsilon=args.epsilon, bid_epsilon=args.bid_epsilon,
+                             max_steps=args.max_steps,
                              device=args.device, output=args.output,
                              actor_workers=args.actor_workers,
                              replay_capacity=args.replay_capacity,
@@ -58,6 +63,8 @@ def main() -> None:
                              updates_per_batch=args.updates_per_batch,
                              history_capacity=args.history_capacity,
                              history_probability=args.history_probability,
+                             redeal_penalty=args.redeal_penalty,
+                             model_schema=args.model_schema,
                              history_keep_top=args.history_keep_top,
                              early_stop_patience_evals=args.early_stop_patience_evals,
                              min_score_improvement=args.min_score_improvement)
@@ -70,7 +77,7 @@ def main() -> None:
             raise SystemExit("evaluate/tournament requires --checkpoint")
         # Load stored metadata before instantiating; do not execute stored code.
         meta = json.loads(args.checkpoint.with_suffix(args.checkpoint.suffix + ".json").read_text())
-        bundle = RoleBundle(NetworkSpec(hidden=int(meta["spec"]["hidden"])), args.device)
+        bundle = RoleBundle(NetworkSpec.from_dict(meta["spec"]), args.device)
         load_checkpoint(args.checkpoint, bundle)
         if args.command == "evaluate":
             result = evaluate_bundle(bundle, seed=args.seed, games=args.eval_games,
