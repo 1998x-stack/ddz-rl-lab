@@ -39,3 +39,8 @@ jobs:
         run: >-
           OMP_NUM_THREADS=1 ddz-train evaluate --checkpoint /tmp/ddz-training-ci/best.weights.pt
           --eval-games 2 --seed 34001
+
+      - name: Multi-worker v5 training and tournament smoke
+        run: |
+          OMP_NUM_THREADS=1 ddz-train train --episodes 2 --batch-episodes 2 --eval-every 2 --eval-games 1 --hidden 16 --actor-workers 2 --output /tmp/ddz-v5-ci
+          OMP_NUM_THREADS=1 ddz-train tournament --checkpoint /tmp/ddz-v5-ci/best.weights.pt --eval-games 2 --seed 35001

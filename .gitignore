@@ -10,8 +10,3 @@ runs/
 replays/
 dist/
 build/
-# Local training artifacts (keep models and logs out of git)
-runs/
-logs/
-*.pt
-*.pt.json

@@ -61,3 +61,8 @@ cards/patterns ──> rules/state ──> game_core API
 - Later **not done**: tournament/robust selection, FastAPI/WebSocket real-time triplet arena, Loguru training dashboard.
 
 All new branches must be created from the prior release and promoted to main only after tests pass; prefer fast-forward updates and do not force overwrite history.
+
+
+## v5.0 delivered
+
+Local spawn-based parallel actor sampling, replay buffer, history snapshots, throughput metrics, and bilateral checkpoint tournaments. v6+ should consider clustered CI for comparative evaluation, CUDA learner scaling, model registry and a Web Arena.

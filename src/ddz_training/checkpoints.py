@@ -40,7 +40,8 @@ def _digest(path: Path) -> str:
 
 def save_checkpoint(path: Path, bundle: RoleBundle, optimizers: dict,
                     *, episodes_seen: int, updates: int, rng: random.Random,
-                    metrics: dict, config: dict, inference_only: bool = False) -> Path:
+                    metrics: dict, config: dict, inference_only: bool = False,
+                    extra_state: dict | None = None) -> Path:
     if set(optimizers) != set(ROLES) and not inference_only:
         raise ValueError("missing optimizer role")
     payload = {
@@ -52,6 +53,7 @@ def save_checkpoint(path: Path, bundle: RoleBundle, optimizers: dict,
         "updates": updates, "metrics": metrics, "config": config,
     }
     if not inference_only:
+        payload["trainer_state"] = extra_state or {}
         payload.update(optimizer={role: optimizer.state_dict() for role, optimizer in optimizers.items()},
                        python_rng=rng.getstate(), torch_rng=torch.get_rng_state())
     path = Path(path)

@@ -1,4 +1,4 @@
-# DDZ RL Lab — v4.0
+# DDZ RL Lab — v5.0
 
 [![CI](https://github.com/1998x-stack/ddz-rl-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/1998x-stack/ddz-rl-lab/actions/workflows/ci.yml)
 
@@ -7,8 +7,9 @@
 - `v1.0`: deterministic authoritative game core, legal rank-multiset action generation, call/rob rules, Loguru, canonical replays and tests.
 - `v2.0`: P2 environment specification and safe-forward promotion workflow.
 - `v3.0`: runnable multi-agent environment, candidate encodings, terminal team rewards, PettingZoo AEC, and test baselines.
-- **`v4.0`: runnable PyTorch role-aware candidate-action MLP, synchronous Deep Monte Carlo self-play, Loguru metrics, checkpoint save/resume, deterministic external-random-opponent evaluation, and CI smoke tests.**
-- **Not included:** distributed actor–learner cluster, production-ready strong models, PPO, model-serving API, Web UI, money, wagers, payments, or Tencent integration.
+- `v4.0`: runnable PyTorch role-aware candidate-action MLP, synchronous Deep Monte Carlo self-play, Loguru metrics, checkpoint save/resume, deterministic external-random-opponent evaluation, and CI smoke tests.
+- **`v5.0`: local multi-process actor sampling, bounded replay with restorable snapshots, rolling frozen historical opponents, throughput JSONL metrics, and two-sided tournament against historical checkpoints.**
+- **Not included:** multi-host distributed actor–learner cluster, production-ready strong models, PPO, model-serving API, Web UI, money, wagers, payments, or Tencent integration.
 
 > This is an independent rules-based educational simulator, not Tencent's proprietary code or a live mini-program replica. Rule divergences and versioned house rules are described in [`docs/RULE_SPEC.md`](docs/RULE_SPEC.md).
 
@@ -23,7 +24,7 @@
 ```bash
 git clone https://github.com/1998x-stack/ddz-rl-lab.git
 cd ddz-rl-lab
-git switch v4.0
+git switch v5.0
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -52,29 +53,39 @@ ddz-demo --games 3 --seed 2026
 | PettingZoo | `ddz_env.pettingzoo_env` | Optional `AECEnv` adapter with action mask |
 | Baseline | `ddz_env.baselines` | Seeded random legal-action rollouts and CLI |
 | Training models | `ddz_models` | Role Q(s,a) network, private-safe candidate inference |
-| Learner / Checkpoint | `ddz_training` | Self-play MC regression, atomic SHA-256 model bundles, resume |
-| Evaluation | `ddz_eval` | Frozen random-opponent seeded bilateral trials |
+| Learner / Checkpoint | `ddz_training` | Spawn actor pool, bounded replay, MC learner, frozen pool, SHA-256 model bundles, resume |
+| Evaluation | `ddz_eval` | Frozen random-opponent trials, seeded cross-checkpoint bilateral tournament |
 | Diagnostics | `ddz_core.logging_config` | Loguru rotating logs |
 | Tests | `tests/` | Unit, random rollout, replay and PettingZoo API tests |
 
-## Run real RL training (v4.0)
+## Run real RL training (v5.0)
 
 ```bash
-# Synchronous, inspectable actor-learner baseline (CPU compatible).
-ddz-train train --episodes 200 --batch-episodes 8 --eval-games 32 \
-  --eval-every 40 --seed 2026 --output runs/dmc-v4 --log-dir logs
+# Local multi-process actor-learner baseline (CPU compatible).
+OMP_NUM_THREADS=1 ddz-train train --episodes 200 --batch-episodes 8 --eval-games 32 \
+  --eval-every 40 --seed 2026 --actor-workers 2 --replay-capacity 20000 \
+  --replay-sample-size 1024 --output runs/dmc-v5 --log-dir logs
 
 # Load the best integrity-checked inference bundle.
-ddz-train evaluate --checkpoint runs/dmc-v4/best.weights.pt \
+ddz-train evaluate --checkpoint runs/dmc-v5/best.weights.pt \
   --seed 7800 --eval-games 200
 
 # Continue from saved optimizer and RNG states.
-ddz-train train --checkpoint runs/dmc-v4/latest.pt --episodes 100 \
+ddz-train train --checkpoint runs/dmc-v5/latest.pt --episodes 100 \
   --batch-episodes 8 --eval-every 40 --eval-games 32 --seed 2026 \
-  --output runs/dmc-v4
+  --actor-workers 2 --replay-capacity 20000 --replay-sample-size 1024 \
+  --output runs/dmc-v5
 ```
 
-Read [v4 training architecture and limitations](docs/V4_TRAINING.md) before comparing models. Training loss is **not** game strength. A 2-episode CI run only proves functionality.
+Run a comparison against frozen checkpoints:
+
+```bash
+OMP_NUM_THREADS=1 ddz-train tournament --checkpoint runs/dmc-v5/best.weights.pt \
+  --opponent-checkpoint runs/dmc-v5/history/step-000000040.weights.pt \
+  --eval-games 500 --seed 80000
+```
+
+Read [v5 training, pool, replay and tournament design](docs/V5_TRAINING_AND_TOURNAMENT.md) before comparing models. Training loss is **not** game strength. A 2-episode CI run only proves functionality.
 
 ## Using the compact environment
 
@@ -151,7 +162,7 @@ ddz-env-demo --episodes 10 --seed 42 --log-dir logs --replay-out replays/last.js
 
 ## Roadmap / branch policy
 
-`v1.0` is immutable P0/P1 reference, `v2.0` preserves P2 design, `v3.0` provides executable P2 env. Next: `v4.0` neural candidate-action scorer + DMC trainer + evaluation baseline; later: checkpoint selection and Web Arena. `main` should only be fast-forward advanced to the **latest tested release branch**. The promotion workflow is included under `.github/workflows/` and must have write permission to work automatically. See [`docs/ROADMAP.md`](docs/ROADMAP.md).
+`v1.0` preserves P0/P1, `v2.0` preserves P2 design, `v3.0` provides the ENV, `v4.0` adds baseline neural DMC, and **`v5.0` adds local actor parallelism, replay and tournaments**. Next: robust checkpoint selection, multi-host throughput and Web Arena. `main` should only be fast-forward advanced to the **latest tested release branch**. The promotion workflow is included under `.github/workflows/` and must have write permission to work automatically. See [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Troubleshooting
 
@@ -165,3 +176,13 @@ ddz-env-demo --episodes 10 --seed 42 --log-dir logs --replay-out replays/last.js
 | CI checks Pending | Allow CI to complete and inspect Actions before promoting a release |
 
 Licensed under MIT. Contributions should maintain deterministic legal action ordering and include regression tests for rules changes.
+
+## v5.0 performance and history files
+
+- `runs/dmc-v5/throughput.jsonl`: per-collection wall-clock throughput, truncated episodes, replay size, actor count.
+- `runs/dmc-v5/evaluations.jsonl`: deterministic random-baseline evaluation history.
+- `runs/dmc-v5/history/step-XXXXXXXXX.weights.pt`: rolling policy snapshots used as optional frozen opponents.
+- `runs/dmc-v5/latest.pt`: restorable optimizer, model, RNG and bounded replay state.
+- `runs/dmc-v5/best.weights.pt`: compact best-on-random-baseline inference policy, **not** a claimed globally strongest agent.
+
+The opponent pool is restricted to play decisions (bidding stays learner self-play). Workers refresh snapshots between batches. See [technical details](docs/V5_TRAINING_AND_TOURNAMENT.md).

@@ -1,5 +1,16 @@
 # Changelog
 
+## v5.0 — local multi-process DMC and tournament
+
+- Spawn-safe parallel Actor workers and frozen snapshots per collection batch.
+- Seeded, capacity-bounded experience replay persisted in latest training checkpoints.
+- Rolling historical policy pool for play-only frozen opponents.
+- Structured throughput and evaluation metrics, plus Loguru trace context.
+- Two-sided seeded checkpoint tournament with Wilson descriptive intervals.
+- CLI flags, extended documentation, regression tests and CI parallel smoke.
+- Does not implement multi-host distributed training or a Web UI.
+
+
 ## v4.0 — P3 / P4 trainable DMC baseline
 
 - Four role-specific PyTorch candidate-action MLP networks (bid, landlord, farmer_up, farmer_down).
