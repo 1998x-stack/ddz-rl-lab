@@ -48,6 +48,7 @@ class TrainConfig:
     redeal_penalty: float = 1.0
     model_schema: str = "ddz-candidate-mlp-v1"
     learning_target_version: str = "ddz-team-normalized-pairwise-v1"
+    reviewed_feedback_dir: str | None = None
 
     def __post_init__(self) -> None:
         positives = ("episodes", "batch_episodes", "eval_games", "eval_every", "hidden",
@@ -67,6 +68,8 @@ class TrainConfig:
             raise ValueError("history_probability must be in [0,1]")
         if not math.isfinite(self.redeal_penalty) or not 0 <= self.redeal_penalty <= 2:
             raise ValueError("redeal_penalty must be in [0,2]")
+        if self.reviewed_feedback_dir is not None and self.model_schema != "ddz-candidate-mlp-v2":
+            raise ValueError("reviewed feedback vectors require v2 encoder")
         if self.learning_target_version != "ddz-team-normalized-pairwise-v1":
             raise ValueError("unknown training target contract")
         if self.model_schema not in {"ddz-candidate-mlp-v1", "ddz-candidate-mlp-v2"}:
@@ -263,6 +266,40 @@ class DMCTrainer:
                 losses = self.learn(samples)
                 logger.bind(component="learner", episodes=self.episodes_seen).info(
                     "update={} samples={} loss={}", self.updates, len(samples), losses)
+            if self.config.reviewed_feedback_dir:
+                self._learn_reviewed_preferences()
+
+    def _learn_reviewed_preferences(self) -> None:
+        """Review-gated local pairwise loss, independent of terminal outcome."""
+        from ddz_quality.feedback import approved_feedback_pairs
+        rows = approved_feedback_pairs(self.config.reviewed_feedback_dir, limit=512)
+        if not rows:
+            return
+        selected = self.rng.sample(rows, k=min(len(rows), 32))
+        for role in ROLES:
+            batch = [r for r in selected if r['role'] == role]
+            if not batch:
+                continue
+            model = self.bundle.models[role]
+            model.train()
+            state = torch.tensor([r['observation_v2'] for r in batch],
+                                 dtype=torch.float32, device=self.bundle.device)
+            bad = torch.tensor([r['chosen_vector_v2'] for r in batch],
+                               dtype=torch.float32, device=self.bundle.device)
+            good = torch.tensor([r['suggested_vector_v2'] for r in batch],
+                                dtype=torch.float32, device=self.bundle.device)
+            # These were explicitly reviewed; unreviewed suggestions cannot enter.
+            loss = F.softplus(.2 + model(state,bad) - model(state,good)).mean()
+            if not torch.isfinite(loss):
+                raise FloatingPointError('nonfinite reviewed-preference loss')
+            opt = self.optimizers[role]
+            opt.zero_grad(set_to_none=True)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(),5.0,error_if_nonfinite=True)
+            opt.step()
+            self.updates += 1
+            logger.bind(component="feedback",role=role,count=len(batch)).info(
+                "reviewed_pairwise_update loss={:.4f}",float(loss.item()))
 
     def _evaluate_and_save(self) -> None:
         result = evaluate_bundle(self.bundle, self.config.seed + 200000,

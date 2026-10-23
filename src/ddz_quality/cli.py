@@ -10,7 +10,7 @@ from .cooperation import interaction_from_crossplay
 from .play_audit import audit_replay_dir
 from .retention import prune_history
 from .auction_audit import paired_auction_audit
-from .feedback import submit_feedback, read_feedback
+from .feedback import submit_feedback, read_feedback, approve_feedback
 
 
 def _write_report(result: dict, destination: Path | None) -> None:
@@ -72,6 +72,11 @@ def main() -> None:
     fb.add_argument('--reason', choices=('split','teamwork','endgame','auction','legality','other'),
                     required=True)
     fb.add_argument('--report', type=Path)
+    review = sub.add_parser('approve-feedback', help='explicit operator approval of a verified preference')
+    review.add_argument('--replay-dir', type=Path, required=True)
+    review.add_argument('--feedback-id', required=True)
+    review.add_argument('--reviewer', required=True)
+    review.add_argument('--report', type=Path)
     args = parser.parse_args()
     try:
         if args.command == 'analyze':
@@ -81,6 +86,8 @@ def main() -> None:
         elif args.command == 'retention':
             result = prune_history(args.run, keep_recent=args.keep_recent,
                                    keep_best=args.keep_best, apply=args.apply)
+        elif args.command == 'approve-feedback':
+            result = approve_feedback(args.replay_dir,args.feedback_id,args.reviewer)
         elif args.command == 'feedback':
             result = submit_feedback(args.replay_dir, args.game_id,
                                      args.step_index, args.alternative_index, args.reason)

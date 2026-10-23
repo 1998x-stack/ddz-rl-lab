@@ -32,3 +32,25 @@ def test_feedback_replay_binding_and_file_permissions(tmp_path):
         submit_feedback(tmp_path,gid,0,9999,'auction')
     with pytest.raises(FeedbackError):
         submit_feedback(tmp_path,'../etc/passwd',0,0,'auction')
+
+def test_approved_preferences_require_second_explicit_review(tmp_path):
+    import json
+    from ddz_quality.feedback import approve_feedback, approved_feedback_pairs
+    engine=GameEngine(810)
+    rng=random.Random(10)
+    for _ in range(500):
+        if engine.state.phase==Phase.FINISHED:
+            break
+        obs=engine.observe(engine.state.current_seat,event_limit=16)
+        engine.step(obs.legal_actions[reasonable_action_index(obs,rng)])
+    assert engine.state.phase==Phase.FINISHED
+    gid='b'*24
+    (tmp_path/(gid+'.json')).write_text(json.dumps(engine.export_replay()),encoding='utf-8')
+    alt=0 if engine.action_history[0].kind.value!='CALL' else 1
+    out=submit_feedback(tmp_path,gid,0,alt,'auction')
+    assert approved_feedback_pairs(tmp_path)==[]
+    approve_feedback(tmp_path,out['id'],'operator')
+    rows=approved_feedback_pairs(tmp_path)
+    assert len(rows)==1 and rows[0]['id']==out['id']
+    with pytest.raises(FileExistsError):
+        approve_feedback(tmp_path,out['id'],'operator')

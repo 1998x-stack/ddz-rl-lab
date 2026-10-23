@@ -122,3 +122,59 @@ def read_feedback(replay_dir: str | Path, feedback_id: str) -> dict:
     if row.get('id')!=feedback_id or row.get('schema')!='ddz-human-feedback-v1':
         raise FeedbackError('corrupted feedback')
     return row
+
+def approve_feedback(replay_dir: str | Path, feedback_id: str,
+                     reviewer: str) -> dict:
+    """Second, explicit local-operator adjudication. Never mutate raw reports."""
+    if not isinstance(reviewer,str) or not re.fullmatch(r'[a-zA-Z0-9_-]{2,40}',reviewer):
+        raise FeedbackError('invalid reviewer identifier')
+    folder=Path(replay_dir)
+    raw=read_feedback(folder,feedback_id)
+    if raw.get('suggested_action') is None:
+        raise FeedbackError('cannot approve an issue without a preferred legal alternative')
+    # Reconstruct source again; do not trust submitted vectors without replay check.
+    record,verified=_read_trace(folder,raw['game_id'])
+    engine=GameEngine(record['seed'],verified.rules)
+    if raw['step_index']>=len(record['actions']):
+        raise FeedbackError('source action not present')
+    for a in record['actions'][:raw['step_index']]:
+        engine.step(Action.from_dict(a))
+    obs=engine.observe(engine.state.current_seat,event_limit=16)
+    chosen=Action.from_dict(record['actions'][raw['step_index']])
+    suggested=Action.from_dict(raw['suggested_action'])
+    if (chosen not in obs.legal_actions or suggested not in obs.legal_actions or
+            chosen==suggested or raw['chosen_action']!=chosen.to_dict()):
+        raise FeedbackError('reviewed preference does not match verified source')
+    review={'schema':'ddz-human-review-v1','feedback_id':feedback_id,
+            'reviewer':reviewer,'status':'approved',
+            'feedback_sha256':hashlib.sha256(
+                (folder/'feedback'/(feedback_id+'.json')).read_bytes()).hexdigest()}
+    review_path=folder/'feedback'/(feedback_id+'.review.json')
+    fd=os.open(review_path,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
+    with os.fdopen(fd,'w',encoding='utf-8') as stream:
+        json.dump(review,stream,sort_keys=True)
+        stream.write('\n')
+        stream.flush();os.fsync(stream.fileno())
+    return {'id':feedback_id,'status':'approved','reviewer':reviewer}
+
+def approved_feedback_pairs(replay_dir: str | Path, *, limit: int=512) -> list[dict]:
+    """Return only reviewed, hash-matched paired vectors; never infer expertise."""
+    folder=Path(replay_dir)/'feedback'
+    if folder.is_symlink() or not folder.is_dir() or not 1<=limit<=10000:
+        return []
+    rows=[]
+    for path in sorted(folder.glob('*.review.json'))[:limit]:
+        if path.is_symlink() or path.stat().st_size>3000:
+            raise FeedbackError('unsafe review file')
+        review=json.loads(path.read_text('utf-8'))
+        if review.get('schema')!='ddz-human-review-v1' or review.get('status')!='approved':
+            raise FeedbackError('invalid review status')
+        fid=review['feedback_id']
+        raw_path=folder/(fid+'.json')
+        raw=read_feedback(Path(replay_dir),fid)
+        if hashlib.sha256(raw_path.read_bytes()).hexdigest()!=review['feedback_sha256']:
+            raise FeedbackError('feedback changed after operator review')
+        if raw.get('suggested_vector_v2') is None:
+            raise FeedbackError('missing reviewed preference vector')
+        rows.append(raw)
+    return rows
