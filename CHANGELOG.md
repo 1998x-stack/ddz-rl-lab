@@ -1,5 +1,17 @@
 # Changelog
 
+## v7.0 — three-model Web Arena
+
+- FastAPI local spectator HTTP API + WebSocket current-state streaming.
+- Three SHA-verified immutable registered inference bundles pinned per game, one policy per seat; no arbitrary weight uploads.
+- Operator-only opt-in non-learning baseline mode, explicitly labelled.
+- Browser UI for starting a new game, play/pause/step/speed, public event feed, and replay download.
+- Public snapshots exclude hidden hands and shuffle seed until game completion.
+- Deterministic action replay persisted atomically after terminal/truncated games.
+- Loguru action context, session cap, local-host/origin guards, backend and browser packaging tests.
+- No production authentication, public multiuser infrastructure, game client integration or claim of strong AI ability.
+
+
 ## v6.0 — multi-seed evaluation and local model registry
 
 - Deal-clustered bootstrap confidence intervals and paired candidate–incumbent differences.

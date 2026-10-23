@@ -60,7 +60,8 @@ cards/patterns ──> rules/state ──> game_core API
 - `v4.0` (P3/P4) **done (baseline scope)**: role-aware candidate-scoring MLP, synchronous DMC self-play, trajectory collection, resumable checkpoint, seeded random-opponent evaluation. Distributed actors and full model tournament remain future work.
 - `v5.0` delivered: multi-process local actors, bounded replay, history pool and bilateral tournament.
 - `v6.0` delivered: deal-cluster paired tournaments, operator-gated immutable model registry.
-- Later **not done**: FastAPI/WebSocket real-time triplet arena, Loguru training dashboard, multi-host cluster.
+- `v7.0` delivered: local FastAPI/WebSocket real-time registered three-agent spectator Arena, controls, redacted public snapshots, replay download and tests.
+- Later **not done**: production authentication, continuous Loguru training dashboard, persistent multiuser Arena and multi-host cluster.
 
 All new branches must be created from the prior release and promoted to main only after tests pass; prefer fast-forward updates and do not force overwrite history.
 
@@ -77,3 +78,12 @@ Local spawn-based parallel actor sampling, replay buffer, history snapshots, thr
 - `ddz_eval.cli` — `ddz-league` CLI to evaluate/register/promote.
 
 Remaining: version-pinned WebSocket serving, graphical Arena, operational dashboard, better learned bidding, multi-candidate adjusted statistical selection, and nontrivial model convergence benchmarks.
+
+## v7.0 delivered
+
+- `ddz_web.arena`: per-game actor scheduling and immutable per-seat registered policy selection.
+- `ddz_web.api`: local FastAPI and WebSocket public snapshots, control API and replay downloads.
+- `ddz_web.static`: responsive accessible spectator UI; no Tencent assets.
+- `ddz_web.cli`: `ddz-arena` loopback launch; Loguru persistence.
+
+Next: more robust on-disk session lifecycle, server auth for optional LAN deployments, read-only dashboards with training metrics, and larger tournament benchmarks.

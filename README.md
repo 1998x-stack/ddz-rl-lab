@@ -1,4 +1,4 @@
-# DDZ RL Lab — v6.0
+# DDZ RL Lab — v7.0
 
 [![CI](https://github.com/1998x-stack/ddz-rl-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/1998x-stack/ddz-rl-lab/actions/workflows/ci.yml)
 
@@ -9,8 +9,9 @@
 - `v3.0`: runnable multi-agent environment, candidate encodings, terminal team rewards, PettingZoo AEC, and test baselines.
 - `v4.0`: runnable PyTorch role-aware candidate-action MLP, synchronous Deep Monte Carlo self-play, Loguru metrics, checkpoint save/resume, deterministic external-random-opponent evaluation, and CI smoke tests.
 - `v5.0`: local multi-process actor sampling, bounded replay with restorable snapshots, rolling frozen historical opponents, throughput JSONL metrics, and two-sided tournament against historical checkpoints.**
+- **`v7.0`: local FastAPI + WebSocket three-agent spectator Arena, pinned SHA-validated registered checkpoint inference, deterministic replay downloads, interactive playback controls, Loguru and security tests.**
 - **`v6.0`: multi-seed paired tournaments with deal-cluster bootstrap, immutable inference model registry, and evidence-gated manual champion promotion.**
-- **Not included:** multi-host distributed actor–learner cluster, production-ready strong models, PPO, model-serving API, Web UI, money, wagers, payments, or Tencent integration.
+- **Not included:** multi-host distributed actor–learner cluster, production-ready strong models, PPO, internet-facing authentication, multi-node Arena, money, wagers, payments, or Tencent integration.
 
 > This is an independent rules-based educational simulator, not Tencent's proprietary code or a live mini-program replica. Rule divergences and versioned house rules are described in [`docs/RULE_SPEC.md`](docs/RULE_SPEC.md).
 
@@ -25,7 +26,7 @@
 ```bash
 git clone https://github.com/1998x-stack/ddz-rl-lab.git
 cd ddz-rl-lab
-git switch v6.0
+git switch v7.0
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -57,6 +58,7 @@ ddz-demo --games 3 --seed 2026
 | Learner / Checkpoint | `ddz_training` | Spawn actor pool, bounded replay, MC learner, frozen pool, SHA-256 model bundles, resume |
 | Evaluation | `ddz_eval` | Frozen random-opponent trials, seeded cross-checkpoint bilateral tournament, paired deal-cluster statistics and selection |
 | Model registry | `ddz_registry` | SHA-verified immutable inference models and explicit champion pointer |
+| Web Arena | `ddz_web` | FastAPI/WebSocket spectator session scheduler, registered-policy routing, playback, and replay |
 | Diagnostics | `ddz_core.logging_config` | Loguru rotating logs |
 | Tests | `tests/` | Unit, random rollout, replay and PettingZoo API tests |
 
@@ -88,6 +90,36 @@ OMP_NUM_THREADS=1 ddz-train tournament --checkpoint runs/dmc-v5/best.weights.pt 
 ```
 
 Read [v5 training, pool, replay and tournament design](docs/V5_TRAINING_AND_TOURNAMENT.md) before comparing models. Training loss is **not** game strength. A 2-episode CI run only proves functionality.
+
+
+## Web Arena: three independently selected RL agents (v7.0)
+
+The Arena is a **local spectator research interface**, not a connection to Tencent. It runs three independent seats against the SAME authoritative rules as training. Models must be **trained inference-only bundles registered by the operator**; selecting a single bundle for all three seats is supported. During play each policy only receives its own redacted `PlayerObservation`, and the web spectator receives public events and remaining card counts. The replay and shuffle seed are available only after completion.
+
+Install server dependencies:
+
+```bash
+python -m pip install -e '.[dev,rl,train,web,webtest]'
+# Register a vetted inference checkpoint and select the first active model:
+ddz-league --registry-dir runs/registry register \
+  --model-id trained-001 --checkpoint runs/dmc-v5/best.weights.pt \
+  --trusted-source-dir runs/dmc-v5
+ddz-league --registry-dir runs/registry bootstrap --model-id trained-001
+# Start local browser interface:
+ddz-arena --host 127.0.0.1 --port 8765 --registry-dir runs/registry
+```
+
+Open **http://127.0.0.1:8765/** and choose three models. Press **创建对局**, then **播放 / 暂停 / 下一步**; speed is adjustable. To run an explicit **non-learning random baseline demo** when you have no trained model:
+
+```bash
+ddz-arena --allow-baseline --port 8765
+```
+
+The random baseline is NOT an RL model. Models remain pinned for the full game; registry changes only affect newly created games. Replay is a verified, seed-based action trace compatible with `ddz_core.engine.replay`. Model scores are uncalibrated Q-values, not win probabilities.
+
+**Security and operation:** the CLI binds to loopback only; the API rejects browser cross-origin POST/WebSockets and untrusted Hosts, caps session counts, and never accepts uploaded `.pt` files. This is **not a public multiuser product** and has no login or authorization. Do not expose port 8765 to the internet or bind 0.0.0.0 without adding authentication and a trusted reverse proxy. Completed games persist in `runs/arena-replays/`; session metadata is memory-resident and resets on server restart. Loguru logs can be configured using `--log-dir`.
+
+[Full Arena architecture, REST/WS contracts and safety boundaries](docs/V7_WEB_ARENA.md).
 
 ## Using the compact environment
 

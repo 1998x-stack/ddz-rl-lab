@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#09191b"><title>DDZ RL Lab · AI Arena</title><link rel="stylesheet" href="/static/style.css"></head>
+<body><main class="shell">
+<header class="top"><div><p class="overline">DDZ RL LAB · EXPERIMENT CONSOLE</p><h1>三智能体对局实验室</h1><p class="subtitle">公开状态实时展示 · 已验证 Checkpoint · 无下注与充值</p></div><span class="pill" id="connection">连接中</span></header>
+<section class="setup panel"><div class="fields"><label>座位 0 · 模型<select id="m0"></select></label><label>座位 1 · 模型<select id="m1"></select></label><label>座位 2 · 模型<select id="m2"></select></label><label>随机种子（可留空）<input id="seed" type="number" min="0" max="4294967295" placeholder="自动生成"></label></div><button id="create" class="primary">创建对局</button><div id="notice" role="status" aria-live="polite"></div></section>
+<section class="arena"><div class="table panel"><div class="table-head"><span>REAL-TIME TABLE</span><span id="counter">未开始</span></div><div class="opponents"><div class="seat" id="seat1"><span class="avatar">01</span><b>Agent 1</b><small>— 张</small></div><div class="seat" id="seat2"><span class="avatar">02</span><b>Agent 2</b><small>— 张</small></div></div>
+<div class="center"><div class="status" id="phase">创建牌局开始</div><div class="cards" id="cards" aria-label="上一次出牌"></div><div class="hint" id="turn">当前等待中</div></div><div class="self seat" id="seat0"><span class="avatar">00</span><div><b>Agent 0</b><small>— 张</small></div></div></div>
+<aside class="sidebar"><div class="panel controllers"><h2>PLAYBACK CONTROL</h2><div class="buttons"><button id="play" disabled>▶ 播放</button><button id="pause" disabled>Ⅱ 暂停</button><button id="step" disabled>下一步 →</button></div><label>每步间隔 <output id="speed-value">0.7 秒</output><input id="speed" type="range" min="0.05" max="3" step="0.05" value="0.7" disabled></label><a id="replay" class="replay disabled" aria-disabled="true">下载完整回放</a></div>
+<div class="panel timeline"><h2>PUBLIC EVENT LOG</h2><ol id="events"><li>尚无事件</li></ol></div></aside></section>
+<footer>训练结果并非获胜保证。随机基线会明确标为 Baseline；未公开手牌不在实时网页展示。</footer></main><script src="/static/app.js" defer></script></body></html>

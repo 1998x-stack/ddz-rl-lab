@@ -28,7 +28,7 @@ jobs:
       - name: Install CPU PyTorch and project
         run: |
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install -e '.[dev,rl]'
+          python -m pip install -e '.[dev,rl,web,webtest]'
       - run: OMP_NUM_THREADS=1 python -m pytest -q
       - name: Self-play/checkpoint/evaluation smoke
         run: >-
@@ -57,3 +57,19 @@ jobs:
             --trusted-source-dir /tmp/ddz-v5-ci
           OMP_NUM_THREADS=1 ddz-league --registry-dir /tmp/ddz-v6-registry bootstrap --model-id baseline
           OMP_NUM_THREADS=1 ddz-league --registry-dir /tmp/ddz-v6-registry verify --model-id baseline
+
+      - name: v7 spectator Arena HTTP + registered model smoke
+        run: |
+          OMP_NUM_THREADS=1 python -m pytest tests/test_v7_arena.py -q
+          OMP_NUM_THREADS=1 python - <<'PYWEB'
+          from ddz_web.api import create_app
+          from fastapi.testclient import TestClient
+          app = create_app('/tmp/ddz-v6-registry', '/tmp/ddz-v7-replays')
+          with TestClient(app) as c:
+              assert c.get('/api/health').json()['status'] == 'ok'
+              assert 'baseline' in c.get('/api/models').json()['models']
+              game = c.post('/api/games', json={'model_ids': ['baseline'] * 3})
+              assert game.status_code == 201, game.text
+              game_id = game.json()['game_id']
+              assert c.post(f'/api/games/{game_id}/control', json={'action':'step'}).status_code == 200
+          PYWEB
