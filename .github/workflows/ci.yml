@@ -165,3 +165,18 @@ jobs:
           two=recognize_patterns(counts_from_ranks('2','2'))[0]
           assert not beats(q,two)
           PYRULE
+
+      - name: P0-P2 correctness, review gate and seeded throughput smoke
+        run: |
+          OMP_NUM_THREADS=1 python -m pytest -q tests/test_contract_golden.py tests/test_policy_identity.py tests/test_auction_audit.py tests/test_urgent_pass_policy.py tests/test_human_feedback.py tests/test_feedback_training.py tests/test_training_quality_targets.py
+          OMP_NUM_THREADS=1 ddz-quality auction-audit --seed 2345 --deals 3 --draws 100 --report /tmp/ddz-auction-audit.json
+          OMP_NUM_THREADS=1 python scripts/benchmark_actor_pool.py --episodes 4 --workers 1 2 --hidden 16 --output /tmp/ddz-actor-bench.json
+          python - <<'PYQUALITY'
+          import json
+          from pathlib import Path
+          a=json.loads(Path('/tmp/ddz-auction-audit.json').read_text())
+          b=json.loads(Path('/tmp/ddz-actor-bench.json').read_text())
+          assert a['schema']=='ddz-auction-paired-audit-v1'
+          assert b['schema']=='ddz-actorpool-benchmark-v1'
+          assert b['deterministic_across_workers']
+          PYQUALITY

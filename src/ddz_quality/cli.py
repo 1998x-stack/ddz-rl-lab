@@ -9,6 +9,8 @@ from .analysis import QualityError, analyze_runs
 from .cooperation import interaction_from_crossplay
 from .play_audit import audit_replay_dir
 from .retention import prune_history
+from .auction_audit import paired_auction_audit
+from .feedback import submit_feedback, read_feedback, approve_feedback
 
 
 def _write_report(result: dict, destination: Path | None) -> None:
@@ -57,6 +59,24 @@ def main() -> None:
     d.add_argument('--include-incomplete', action='store_true',
                    help='include verified session journals without terminal labels')
     d.add_argument('--report', type=Path)
+    q = sub.add_parser('auction-audit', help='paired CALL vs DECLINE on same initial deals')
+    q.add_argument('--seed', type=int, default=2026)
+    q.add_argument('--deals', type=int, default=30)
+    q.add_argument('--draws', type=int, default=2000)
+    q.add_argument('--report', type=Path)
+    fb = sub.add_parser('feedback', help='submit a trace-verified human move issue or preference')
+    fb.add_argument('--replay-dir', type=Path, required=True)
+    fb.add_argument('--game-id', required=True)
+    fb.add_argument('--step-index', type=int, required=True)
+    fb.add_argument('--alternative-index', type=int)
+    fb.add_argument('--reason', choices=('split','teamwork','endgame','auction','legality','other'),
+                    required=True)
+    fb.add_argument('--report', type=Path)
+    review = sub.add_parser('approve-feedback', help='explicit operator approval of a verified preference')
+    review.add_argument('--replay-dir', type=Path, required=True)
+    review.add_argument('--feedback-id', required=True)
+    review.add_argument('--reviewer', required=True)
+    review.add_argument('--report', type=Path)
     args = parser.parse_args()
     try:
         if args.command == 'analyze':
@@ -66,6 +86,13 @@ def main() -> None:
         elif args.command == 'retention':
             result = prune_history(args.run, keep_recent=args.keep_recent,
                                    keep_best=args.keep_best, apply=args.apply)
+        elif args.command == 'approve-feedback':
+            result = approve_feedback(args.replay_dir,args.feedback_id,args.reviewer)
+        elif args.command == 'feedback':
+            result = submit_feedback(args.replay_dir, args.game_id,
+                                     args.step_index, args.alternative_index, args.reason)
+        elif args.command == 'auction-audit':
+            result = paired_auction_audit(args.seed, args.deals, args.draws)
         elif args.command == 'play-audit':
             if not 0 <= args.example_limit <= 100:
                 raise QualityError('example-limit must be 0..100')

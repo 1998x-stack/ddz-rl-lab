@@ -1,5 +1,9 @@
 """Human seat uses a private hand view and authoritative legal actions."""
 import json
+import pytest
+
+pytest.importorskip('fastapi')
+pytest.importorskip('torch')
 
 from fastapi.testclient import TestClient
 

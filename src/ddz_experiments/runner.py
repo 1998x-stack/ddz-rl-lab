@@ -67,7 +67,8 @@ def _read_spec(path: Path) -> dict[str, Any]:
     # Reject booleans as integer settings and very long, resource-exhausting jobs.
     for key in ('episodes', 'batch_episodes', 'eval_games', 'eval_every', 'hidden',
                 'max_steps', 'actor_workers', 'replay_capacity', 'replay_sample_size',
-                'updates_per_batch', 'history_capacity', 'seed'):
+                'updates_per_batch', 'history_capacity', 'seed',
+                'bid_counterfactual_deals'):
         if key in overrides and type(overrides[key]) is not int:
             raise ExperimentError(f'{key} must be an integer')
     if overrides['episodes'] > 2_000_000 or overrides.get('actor_workers', 1) > 64:

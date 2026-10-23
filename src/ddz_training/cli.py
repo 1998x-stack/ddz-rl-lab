@@ -27,6 +27,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--lr", type=float, default=0.0003)
     parser.add_argument("--epsilon", type=float, default=0.15)
     parser.add_argument("--bid-epsilon", type=float, default=0.7)
+    parser.add_argument("--bid-counterfactual-deals", type=int, default=0,
+                        help="optional matched initial CALL/DECLINE teacher rollouts per actor batch")
     parser.add_argument("--max-steps", type=int, default=1200)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--output", default="runs/dmc-v4")
@@ -44,6 +46,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--history-keep-top", type=int, default=0)
     parser.add_argument("--early-stop-patience-evals", type=int, default=0)
     parser.add_argument("--min-score-improvement", type=float, default=0.0)
+    parser.add_argument("--reviewed-feedback-dir", type=Path,
+                        help="trusted private replay directory containing explicitly approved feedback")
     parser.add_argument("--opponent-checkpoint", action="append", type=Path, default=[])
     return parser
 
@@ -67,6 +71,9 @@ def main() -> None:
                              history_probability=args.history_probability,
                              redeal_penalty=args.redeal_penalty,
                              model_schema=args.model_schema,
+                             bid_counterfactual_deals=args.bid_counterfactual_deals,
+                             reviewed_feedback_dir=(str(args.reviewed_feedback_dir)
+                                                    if args.reviewed_feedback_dir else None),
                              history_keep_top=args.history_keep_top,
                              early_stop_patience_evals=args.early_stop_patience_evals,
                              min_score_improvement=args.min_score_improvement)

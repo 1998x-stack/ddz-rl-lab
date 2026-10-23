@@ -461,3 +461,30 @@ OMP_NUM_THREADS=1 ddz-train train --model-schema ddz-candidate-mlp-v2 \
 ### 完整对局与训练数据审计
 
 `scripts/batch_arena_audit.py` 可让当前活跃模型三席完整对局并逐局校验回放；`ddz-quality play-audit` 标出漏掉一手出完与需要复核的拆牌/危险让牌；`ddz-quality export-decisions` 从已验证回放导出每步的完整合法候选、选择和来源。可加 `--include-incomplete` 纳入受保护的未完成会话，但它们没有终局标签。历史数据没有行为概率或人工专家标签，导出器不会编造。实际 100 局结果、奖励函数及规则版本设计见[深度审计](docs/DEEP_TRAINING_AUDIT_20261023.md)和[训练数据设计](docs/PLAY_DATA_TRAINING_DESIGN.md)。
+
+## Policy/training reliability iteration (2026-10-23)
+
+The optional research additions provide independent policy fingerprints (model
+weights, encoder, rule configuration and deployed inference-source hashes), a
+conditional urgent teammate-PASS rule, normalized team return targets, a
+rule-certified immediate-finish pairwise loss, paired auction diagnostics,
+trace-verified human feedback and a deterministic ActorPool benchmark.
+This does **not** demonstrate improved competitive performance.
+
+```bash
+ddz-quality auction-audit --deals 100 --draws 2000 --report runs/reports/auction.json
+ddz-quality feedback --replay-dir runs/arena-replays --game-id GAME_ID --step-index 12 --alternative-index 3 --reason teamwork
+ddz-quality approve-feedback --replay-dir runs/arena-replays --feedback-id ID --reviewer operator
+ddz-train train --model-schema ddz-candidate-mlp-v2 --reviewed-feedback-dir runs/arena-replays --episodes 100
+OMP_NUM_THREADS=1 python scripts/benchmark_actor_pool.py --workers 1 2 --episodes 20 --output runs/reports/actor-bench.json
+```
+
+Only independently reviewed feedback enters optional pairwise training. The
+new terminal reward target contract intentionally prevents resuming legacy
+training checkpoints; old inference-only bundles remain schema-aware.
+Consult [the source-backed design and release gates](docs/POLICY_TRAINING_INTEGRITY.md).
+
+Optional matched-bid teacher for **new v2 training experiments only**:
+`ddz-train train --model-schema ddz-candidate-mlp-v2 --bid-counterfactual-deals 2 --episodes 200 --output runs/bid-cf-v2`.
+It is simulator-supervised initial CALL training, not a proof of optimal bidding;
+keep held-out paired evaluations before registering/promoting the checkpoint.
